@@ -27,6 +27,7 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Activity;
 using MediaBrowser.Model.Configuration;
@@ -38,6 +39,7 @@ using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Api.Controllers;
@@ -59,6 +61,8 @@ public class LibraryController : BaseJellyfinApiController
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ILogger<LibraryController> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
+    private readonly IMediaEncoder _mediaEncoder;
+    private readonly IMemoryCache _memoryCache;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryController"/> class.
@@ -74,6 +78,8 @@ public class LibraryController : BaseJellyfinApiController
     /// <param name="libraryMonitor">Instance of the <see cref="ILibraryMonitor"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{LibraryController}"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
+    /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
+    /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
     public LibraryController(
         IProviderManager providerManager,
         ISimilarItemsManager similarItemsManager,
@@ -85,7 +91,9 @@ public class LibraryController : BaseJellyfinApiController
         ILocalizationManager localization,
         ILibraryMonitor libraryMonitor,
         ILogger<LibraryController> logger,
-        IServerConfigurationManager serverConfigurationManager)
+        IServerConfigurationManager serverConfigurationManager,
+        IMediaEncoder mediaEncoder,
+        IMemoryCache memoryCache)
     {
         _providerManager = providerManager;
         _similarItemsManager = similarItemsManager;
@@ -98,6 +106,8 @@ public class LibraryController : BaseJellyfinApiController
         _libraryMonitor = libraryMonitor;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
+        _mediaEncoder = mediaEncoder;
+        _memoryCache = memoryCache;
     }
 
     /// <summary>
@@ -674,11 +684,7 @@ public class LibraryController : BaseJellyfinApiController
     [ProducesFile("video/*", "audio/*")]
     public async Task<ActionResult> GetDownload([FromRoute, Required] Guid itemId)
     {
-        var userId = User.GetUserId();
-        var user = userId.IsEmpty()
-            ? null
-            : _userManager.GetUserById(userId);
-        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        var (item, user) = GetDownloadableItem(itemId);
         if (item is null)
         {
             return NotFound();
@@ -686,17 +692,45 @@ public class LibraryController : BaseJellyfinApiController
 
         if (user is not null)
         {
-            if (!item.CanDownload(user))
-            {
-                throw new ArgumentException("Item does not support downloading");
-            }
+            await LogDownloadAsync(item, user).ConfigureAwait(false);
         }
-        else
+
+        var downloadVersion = FindDownloadVersion(item);
+        if (downloadVersion is not null)
         {
-            if (!item.CanDownload())
-            {
-                throw new ArgumentException("Item does not support downloading");
-            }
+            _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
+        }
+
+        return ServeDownload(item, downloadVersion ?? item.Path);
+    }
+
+    /// <summary>
+    /// Downloads the optimised version of an item's media.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <response code="200">Media downloaded.</response>
+    /// <response code="404">Item not found, or it has no optimised version.</response>
+    /// <returns>A <see cref="FileResult"/> containing the optimised media stream.</returns>
+    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
+    [HttpGet("Items/{itemId}/Download/Optimised")]
+    [Authorize(Policy = Policies.Download)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesFile("video/*", "audio/*")]
+    public async Task<ActionResult> GetOptimisedDownload([FromRoute, Required] Guid itemId)
+    {
+        var (item, user) = GetDownloadableItem(itemId);
+        if (item is null)
+        {
+            return NotFound();
+        }
+
+        // No fall-through to item.Path here, unlike GetDownload: this route means "the optimised file",
+        // so no optimised file means no download, and the client decides what to do about it.
+        var downloadVersion = FindDownloadVersion(item);
+        if (downloadVersion is null)
+        {
+            return NotFound();
         }
 
         if (user is not null)
@@ -704,27 +738,50 @@ public class LibraryController : BaseJellyfinApiController
             await LogDownloadAsync(item, user).ConfigureAwait(false);
         }
 
-        var downloadVersion = DownloadHelper.FindDownloadVersion(_serverConfigurationManager.GetConfiguration<DownloadOptions>("downloads"), item.Path);
-        if (downloadVersion is not null)
+        _logger.LogInformation("Serving download version {DownloadVersion} for {Path}", downloadVersion, item.Path);
+
+        return ServeDownload(item, downloadVersion);
+    }
+
+    /// <summary>
+    /// Gets the media info of an item's optimised version, describing the file that
+    /// <c>Items/{itemId}/Download/Optimised</c> would serve rather than the item's own file.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">Media info returned.</response>
+    /// <response code="404">Item not found, or it has no optimised version.</response>
+    /// <returns>The <see cref="MediaSourceInfo"/> of the optimised version.</returns>
+    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
+    [HttpGet("Items/{itemId}/Download/Optimised/MediaInfo")]
+    [Authorize(Policy = Policies.Download)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MediaSourceInfo>> GetOptimisedDownloadMediaInfo(
+        [FromRoute, Required] Guid itemId,
+        CancellationToken cancellationToken)
+    {
+        var (item, _) = GetDownloadableItem(itemId);
+        if (item is null)
         {
-            _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
+            return NotFound();
         }
 
-        // Quotes are valid in linux. They'll possibly cause issues here.
-        var filename = Path.GetFileName(downloadVersion ?? item.Path)?.Replace("\"", string.Empty, StringComparison.Ordinal);
-
-        var filePath = downloadVersion ?? item.Path;
-        if (item.IsFileProtocol)
+        var downloadVersion = FindDownloadVersion(item);
+        if (downloadVersion is null)
         {
-            // PhysicalFile does not work well with symlinks at the moment.
-            var resolved = FileSystemHelper.ResolveLinkTarget(filePath, returnFinalTarget: true);
-            if (resolved is not null && resolved.Exists)
-            {
-                filePath = resolved.FullName;
-            }
+            return NotFound();
         }
 
-        return PhysicalFile(filePath, MimeTypes.GetMimeType(filePath), filename, true);
+        var mediaSource = await DownloadProbeHelper.ProbeAsync(_mediaEncoder, _memoryCache, itemId, downloadVersion, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (mediaSource is null)
+        {
+            return NotFound();
+        }
+
+        return mediaSource;
     }
 
     /// <summary>
@@ -991,6 +1048,64 @@ public class LibraryController : BaseJellyfinApiController
         result.TypeOptions = typeOptions.ToArray();
 
         return result;
+    }
+
+    /// <summary>
+    /// Resolves an item for download, checking that this user may download it.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <returns>The item and the requesting user, with a null item when there isn't one.</returns>
+    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
+    private (BaseItem? Item, User? User) GetDownloadableItem(Guid itemId)
+    {
+        var userId = User.GetUserId();
+        var user = userId.IsEmpty()
+            ? null
+            : _userManager.GetUserById(userId);
+        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        if (item is null)
+        {
+            return (null, user);
+        }
+
+        var canDownload = user is not null ? item.CanDownload(user) : item.CanDownload();
+        if (!canDownload)
+        {
+            throw new ArgumentException("Item does not support downloading");
+        }
+
+        return (item, user);
+    }
+
+    /// <summary>
+    /// Finds the download version of an item, if the configured locations hold one.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
+    private string? FindDownloadVersion(BaseItem item)
+        => DownloadHelper.FindDownloadVersion(_serverConfigurationManager.GetConfiguration<DownloadOptions>("downloads"), item.Path);
+
+    /// <summary>
+    /// Serves a file as a download, named after itself.
+    /// </summary>
+    /// <param name="item">The item the file belongs to.</param>
+    /// <param name="filePath">The path of the file to serve.</param>
+    /// <returns>A <see cref="FileResult"/> containing the media stream.</returns>
+    private ActionResult ServeDownload(BaseItem item, string filePath)
+    {
+        var filename = Path.GetFileName(filePath)?.Replace("\"", string.Empty, StringComparison.Ordinal);
+
+        if (item.IsFileProtocol)
+        {
+            // Resolve symlinks
+            var resolved = FileSystemHelper.ResolveLinkTarget(filePath, returnFinalTarget: true);
+            if (resolved is not null && resolved.Exists)
+            {
+                filePath = resolved.FullName;
+            }
+        }
+
+        return PhysicalFile(filePath, MimeTypes.GetMimeType(filePath), filename, true);
     }
 
     private BaseItem? TranslateParentItem(BaseItem item, User user)
