@@ -16,6 +16,7 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Configuration;
@@ -703,10 +704,16 @@ public class LibraryController : BaseJellyfinApiController
             await LogDownloadAsync(item, user).ConfigureAwait(false);
         }
 
-        // Quotes are valid in linux. They'll possibly cause issues here.
-        var filename = Path.GetFileName(item.Path)?.Replace("\"", string.Empty, StringComparison.Ordinal);
+        var downloadVersion = DownloadHelper.FindDownloadVersion(_serverConfigurationManager.GetConfiguration<DownloadOptions>("downloads"), item.Path);
+        if (downloadVersion is not null)
+        {
+            _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
+        }
 
-        var filePath = item.Path;
+        // Quotes are valid in linux. They'll possibly cause issues here.
+        var filename = Path.GetFileName(downloadVersion ?? item.Path)?.Replace("\"", string.Empty, StringComparison.Ordinal);
+
+        var filePath = downloadVersion ?? item.Path;
         if (item.IsFileProtocol)
         {
             // PhysicalFile does not work well with symlinks at the moment.
