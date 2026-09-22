@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Xml;
 using System.Xml.Serialization;
 using MediaBrowser.Model.Configuration;
 using Xunit;
@@ -93,9 +94,22 @@ namespace Jellyfin.Model.Tests.Configuration
             return Deserialize(writer.ToString());
         }
 
+        /// <summary>
+        /// Reads the settings back, through an <see cref="XmlReader"/> rather than straight from a
+        /// <see cref="TextReader"/>: the simpler overload leaves DTD processing and an
+        /// <see cref="System.Xml.XmlResolver"/> available, which is how an XML parser is talked into
+        /// fetching external entities or expanding one into a denial of service. Neither is a real
+        /// risk for a string literal in a test, but the rule is worth honouring where the test would
+        /// otherwise be read as the example of how to do it.
+        /// </summary>
         private static DownloadOptions Deserialize(string xml)
         {
-            using var reader = new StringReader(xml);
+            using var stringReader = new StringReader(xml);
+            using var reader = XmlReader.Create(stringReader, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null
+            });
 
             return (DownloadOptions)new XmlSerializer(typeof(DownloadOptions)).Deserialize(reader)!;
         }
