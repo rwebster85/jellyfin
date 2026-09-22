@@ -16,7 +16,6 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Configuration;
@@ -27,7 +26,6 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Activity;
 using MediaBrowser.Model.Configuration;
@@ -39,7 +37,6 @@ using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Api.Controllers;
@@ -61,8 +58,7 @@ public class LibraryController : BaseJellyfinApiController
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ILogger<LibraryController> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
-    private readonly IMediaEncoder _mediaEncoder;
-    private readonly IMemoryCache _memoryCache;
+    private readonly DownloadHelper _downloadHelper;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryController"/> class.
@@ -78,8 +74,7 @@ public class LibraryController : BaseJellyfinApiController
     /// <param name="libraryMonitor">Instance of the <see cref="ILibraryMonitor"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{LibraryController}"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
-    /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
-    /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
+    /// <param name="downloadHelper">Instance of the <see cref="DownloadHelper"/>.</param>
     public LibraryController(
         IProviderManager providerManager,
         ISimilarItemsManager similarItemsManager,
@@ -92,8 +87,7 @@ public class LibraryController : BaseJellyfinApiController
         ILibraryMonitor libraryMonitor,
         ILogger<LibraryController> logger,
         IServerConfigurationManager serverConfigurationManager,
-        IMediaEncoder mediaEncoder,
-        IMemoryCache memoryCache)
+        DownloadHelper downloadHelper)
     {
         _providerManager = providerManager;
         _similarItemsManager = similarItemsManager;
@@ -106,8 +100,7 @@ public class LibraryController : BaseJellyfinApiController
         _libraryMonitor = libraryMonitor;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
-        _mediaEncoder = mediaEncoder;
-        _memoryCache = memoryCache;
+        _downloadHelper = downloadHelper;
     }
 
     /// <summary>
@@ -695,7 +688,7 @@ public class LibraryController : BaseJellyfinApiController
             await LogDownloadAsync(item, user).ConfigureAwait(false);
         }
 
-        var downloadVersion = FindDownloadVersion(item);
+        var downloadVersion = FindDownloadVersion(item, user);
         if (downloadVersion is not null)
         {
             _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
@@ -727,7 +720,7 @@ public class LibraryController : BaseJellyfinApiController
 
         // No fall-through to item.Path here, unlike GetDownload: this route means "the optimised file",
         // so no optimised file means no download, and the client decides what to do about it.
-        var downloadVersion = FindDownloadVersion(item);
+        var downloadVersion = FindDownloadVersion(item, user);
         if (downloadVersion is null)
         {
             return NotFound();
@@ -761,19 +754,21 @@ public class LibraryController : BaseJellyfinApiController
         [FromRoute, Required] Guid itemId,
         CancellationToken cancellationToken)
     {
-        var (item, _) = GetDownloadableItem(itemId);
+        // The user matters here as much as on the bytes route: this has to describe the file that
+        // route would serve them, which is their own tier.
+        var (item, user) = GetDownloadableItem(itemId);
         if (item is null)
         {
             return NotFound();
         }
 
-        var downloadVersion = FindDownloadVersion(item);
+        var downloadVersion = FindDownloadVersion(item, user);
         if (downloadVersion is null)
         {
             return NotFound();
         }
 
-        var mediaSource = await DownloadProbeHelper.ProbeAsync(_mediaEncoder, _memoryCache, itemId, downloadVersion, cancellationToken)
+        var mediaSource = await _downloadHelper.ProbeAsync(itemId, downloadVersion, cancellationToken)
             .ConfigureAwait(false);
 
         if (mediaSource is null)
@@ -1078,12 +1073,14 @@ public class LibraryController : BaseJellyfinApiController
     }
 
     /// <summary>
-    /// Finds the download version of an item, if the configured locations hold one.
+    /// Finds the download version of an item, if the configured locations hold one, at the quality
+    /// tier this user chose - falling back to the other enabled tiers when that one has no file.
     /// </summary>
     /// <param name="item">The item.</param>
+    /// <param name="user">The requesting user, or <c>null</c> for an API key.</param>
     /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
-    private string? FindDownloadVersion(BaseItem item)
-        => DownloadHelper.FindDownloadVersion(_serverConfigurationManager.GetConfiguration<DownloadOptions>("downloads"), item.Path);
+    private string? FindDownloadVersion(BaseItem item, User? user)
+        => _downloadHelper.FindForUser(item.Path, user?.Id ?? Guid.Empty);
 
     /// <summary>
     /// Serves a file as a download, named after itself.
