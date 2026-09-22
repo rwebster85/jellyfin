@@ -688,7 +688,7 @@ public class LibraryController : BaseJellyfinApiController
             await LogDownloadAsync(item, user).ConfigureAwait(false);
         }
 
-        var downloadVersion = FindDownloadVersion(item, user);
+        var downloadVersion = FindSubstituteVersion(item, user);
         if (downloadVersion is not null)
         {
             _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
@@ -1081,6 +1081,17 @@ public class LibraryController : BaseJellyfinApiController
     /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
     private string? FindDownloadVersion(BaseItem item, User? user)
         => _downloadHelper.FindForUser(item.Path, user?.Id ?? Guid.Empty);
+
+    /// <summary>
+    /// Finds the download version the plain download route should serve in place of the item's own
+    /// file, which is nothing when the admin has chosen to offer the optimised copy as a separate
+    /// action instead.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <param name="user">The requesting user, or <c>null</c> for an API key.</param>
+    /// <returns>The path to substitute, or <c>null</c> to serve the item's own file.</returns>
+    private string? FindSubstituteVersion(BaseItem item, User? user)
+        => _downloadHelper.FindForPlainDownload(item.Path, user?.Id ?? Guid.Empty);
 
     /// <summary>
     /// Serves a file as a download, named after itself.

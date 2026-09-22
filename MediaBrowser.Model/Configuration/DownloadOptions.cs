@@ -19,5 +19,12 @@ namespace MediaBrowser.Model.Configuration
         /// back to the others.
         /// </summary>
         public string[] Qualities { get; set; } = [DownloadQualities.High, DownloadQualities.Standard];
+
+        /// <summary>
+        /// Gets or sets which download behaviour the server offers. Defaults to
+        /// <see cref="DownloadBehaviour.Substitute"/>, which is how the feature has always behaved,
+        /// so an existing configuration reads back unchanged.
+        /// </summary>
+        public DownloadBehaviour Behaviour { get; set; } = DownloadBehaviour.Substitute;
     }
 }

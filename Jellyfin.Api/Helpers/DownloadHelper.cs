@@ -53,6 +53,22 @@ namespace Jellyfin.Api.Helpers
             DownloadPreferences.GetQuality(displayPreferencesManager, userId));
 
         /// <summary>
+        /// Finds the download version the plain download route should serve in place of an item's
+        /// own file, which is nothing at all when the admin has chosen to offer the optimised copy
+        /// as a separate action instead.
+        /// </summary>
+        /// <param name="path">The path of the item being downloaded.</param>
+        /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
+        /// <returns>The path of the download version, or <c>null</c> if it should not substitute.</returns>
+        /// <remarks>
+        /// Only the plain route asks this. The <c>Download/Optimised</c> pair means "the optimised
+        /// file" whatever the setting says, so it goes on using <see cref="FindForUser"/>: the
+        /// setting decides what the plain button does, not whether the optimised copy is reachable.
+        /// </remarks>
+        public string? FindForPlainDownload(string? path, Guid userId) =>
+            Options.Behaviour == DownloadBehaviour.Substitute ? FindForUser(path, userId) : null;
+
+        /// <summary>
         /// Probes a download version and returns what it actually contains, so the server can hand
         /// over a rendition and its own <see cref="MediaSourceInfo"/> rather than the source's.
         /// </summary>
