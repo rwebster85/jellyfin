@@ -95,13 +95,23 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
-        /// Finds a video in the item's folder that carries no tier suffix at all, which is how an
-        /// admin who does not want to think about tiers puts one file in a folder and has it served.
+        /// Finds the item folder's single video whatever it is called, which is how an admin who
+        /// does not want to think about tiers puts one file in a folder and has it served.
         /// </summary>
         /// <remarks>
-        /// Only ever the folder's single video. Refusing to choose between several is the same
-        /// instinct as the tiered search: with nothing naming which file is wanted, guessing wrong
-        /// hands somebody the wrong film, which is worse than falling through to the original.
+        /// This runs on filename alone, so <strong>any unrecognised suffix is treated as
+        /// untiered</strong>. Only the names in <see cref="DownloadQualities.All"/> are tiers;
+        /// <c>Film - Low.mkv</c> or a typo like <c>Film - Hihg.mkv</c> matches no tier and arrives
+        /// here, where it is served like any other single file. Forgiving on purpose - the admin
+        /// plainly meant that file to be used.
+        ///
+        /// The cost of that forgiveness shows up only alongside a second video: the typo still
+        /// matches no tier, two videos means this refuses to choose, and the item falls through to
+        /// its own file with nothing naming what went wrong.
+        ///
+        /// Refusing to choose is the same instinct as the tiered search. With nothing saying which
+        /// file is wanted, guessing hands somebody the wrong film, which is worse than falling
+        /// through to the original.
         /// </remarks>
         private static string? FindUntieredInLocations(string[] locations, string folderName)
         {
