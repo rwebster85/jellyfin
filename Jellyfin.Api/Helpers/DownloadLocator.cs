@@ -9,17 +9,23 @@ namespace Jellyfin.Api.Helpers
     /// <summary>
     /// Locates pre-made download versions of a media file.
     /// </summary>
-    public static class DownloadHelper
+    public static class DownloadLocator
     {
         /// <summary>
         /// Finds a download version of a file in the configured locations, looked up by the name of the
         /// folder the file lives in. Prefers a version named after the file itself, and otherwise accepts
         /// the folder's only version.
         /// </summary>
+        /// <remarks>
+        /// The search is quality-major: the user's own tier is looked for across every location before
+        /// the next tier is tried anywhere. A tier is a choice somebody made; which location a file
+        /// happens to sit in is not, so the tier wins.
+        /// </remarks>
         /// <param name="options">The download options.</param>
         /// <param name="path">The path of the item being downloaded.</param>
+        /// <param name="preferredQuality">The tier the user asked for, or <c>null</c> for the default.</param>
         /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
-        public static string? FindDownloadVersion(DownloadOptions options, string? path)
+        public static string? FindDownloadVersion(DownloadOptions options, string? path, string? preferredQuality = null)
         {
             ArgumentNullException.ThrowIfNull(options);
 
@@ -29,10 +35,30 @@ namespace Jellyfin.Api.Helpers
                 return null;
             }
 
-            var suffix = " - " + options.Quality;
-            var preferredName = Path.GetFileNameWithoutExtension(path) + suffix;
+            var stem = Path.GetFileNameWithoutExtension(path);
+            if (string.IsNullOrEmpty(stem))
+            {
+                return null;
+            }
 
-            foreach (var location in options.Locations)
+            foreach (var quality in DownloadQualities.GetSearchOrder(options, preferredQuality))
+            {
+                var match = FindInLocations(options.Locations, folderName, stem, quality);
+                if (match is not null)
+                {
+                    return match;
+                }
+            }
+
+            return null;
+        }
+
+        private static string? FindInLocations(string[] locations, string folderName, string stem, string quality)
+        {
+            var suffix = " - " + quality;
+            var preferredName = stem + suffix;
+
+            foreach (var location in locations)
             {
                 if (string.IsNullOrWhiteSpace(location))
                 {

@@ -18,39 +18,18 @@ namespace Jellyfin.Api.Helpers
     /// served, describes it, and reads and writes the tier they chose.
     /// </summary>
     /// <remarks>
-    /// Registered in DI so that a controller takes one dependency for the whole feature instead of
-    /// the four services underneath it, in the manner of <see cref="MediaInfoHelper"/>,
-    /// <see cref="AudioHelper"/> and <see cref="DynamicHlsHelper"/>. It holds no state of its own:
-    /// the work stays in the stateless helpers it composes - <see cref="DownloadLocator"/>,
-    /// <see cref="DownloadProbeHelper"/>, <see cref="DownloadPreferences"/> and
-    /// <see cref="DownloadQualities"/> - which are unit-testable without mocking any of it.
+    /// Initializes a new instance of the <see cref="DownloadHelper"/> class.
     /// </remarks>
-    public class DownloadHelper
+    /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
+    /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
+    /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
+    /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
+    public class DownloadHelper(
+        IServerConfigurationManager serverConfigurationManager,
+        IDisplayPreferencesManager displayPreferencesManager,
+        IMediaEncoder mediaEncoder,
+        IMemoryCache memoryCache)
     {
-        private readonly IServerConfigurationManager _serverConfigurationManager;
-        private readonly IDisplayPreferencesManager _displayPreferencesManager;
-        private readonly IMediaEncoder _mediaEncoder;
-        private readonly IMemoryCache _memoryCache;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DownloadHelper"/> class.
-        /// </summary>
-        /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
-        /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
-        /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
-        /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
-        public DownloadHelper(
-            IServerConfigurationManager serverConfigurationManager,
-            IDisplayPreferencesManager displayPreferencesManager,
-            IMediaEncoder mediaEncoder,
-            IMemoryCache memoryCache)
-        {
-            _serverConfigurationManager = serverConfigurationManager;
-            _displayPreferencesManager = displayPreferencesManager;
-            _mediaEncoder = mediaEncoder;
-            _memoryCache = memoryCache;
-        }
-
         /// <summary>
         /// Gets the download options the admin has configured.
         /// </summary>
@@ -59,7 +38,7 @@ namespace Jellyfin.Api.Helpers
         /// object, and an admin saving the settings page has to take effect without a restart.
         /// </remarks>
         private DownloadOptions Options
-            => _serverConfigurationManager.GetConfiguration<DownloadOptions>("downloads");
+            => serverConfigurationManager.GetConfiguration<DownloadOptions>("downloads");
 
         /// <summary>
         /// Finds the download version of a file at the tier this user chose, falling back to the
@@ -68,11 +47,10 @@ namespace Jellyfin.Api.Helpers
         /// <param name="path">The path of the item being downloaded.</param>
         /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
         /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
-        public string? FindForUser(string? path, Guid userId)
-            => DownloadLocator.FindDownloadVersion(
-                Options,
-                path,
-                DownloadPreferences.GetQuality(_displayPreferencesManager, userId));
+        public string? FindForUser(string? path, Guid userId) => DownloadLocator.FindDownloadVersion(
+            Options,
+            path,
+            DownloadPreferences.GetQuality(displayPreferencesManager, userId));
 
         /// <summary>
         /// Probes a download version and returns what it actually contains, so the server can hand
@@ -83,21 +61,19 @@ namespace Jellyfin.Api.Helpers
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>The probed <see cref="MediaSourceInfo"/>, or <c>null</c> if the file has gone.</returns>
         public Task<MediaSourceInfo?> ProbeAsync(Guid itemId, string path, CancellationToken cancellationToken)
-            => DownloadProbeHelper.ProbeAsync(_mediaEncoder, _memoryCache, itemId, path, cancellationToken);
+            => DownloadProbeHelper.ProbeAsync(mediaEncoder, memoryCache, itemId, path, cancellationToken);
 
         /// <summary>
         /// Gets the tiers the admin has enabled, best first.
         /// </summary>
         /// <returns>The enabled tiers.</returns>
-        public IReadOnlyList<string> GetEnabledQualities()
-            => DownloadQualities.GetEnabled(Options);
+        public IReadOnlyList<string> GetEnabledQualities() => DownloadQualities.GetEnabled(Options);
 
         /// <summary>
         /// Gets the tier used by a user who has not chosen one.
         /// </summary>
         /// <returns>The default tier, or <c>null</c> if the admin has enabled none.</returns>
-        public string? GetDefaultQuality()
-            => DownloadQualities.GetDefault(Options);
+        public string? GetDefaultQuality() => DownloadQualities.GetDefault(Options);
 
         /// <summary>
         /// Gets the tier a user chose, as long as it is one the admin still has enabled.
@@ -110,7 +86,7 @@ namespace Jellyfin.Api.Helpers
         /// changes nothing.
         /// </remarks>
         public string? GetUserQuality(Guid userId)
-            => ResolveEnabledQuality(DownloadPreferences.GetQuality(_displayPreferencesManager, userId));
+            => ResolveEnabledQuality(DownloadPreferences.GetQuality(displayPreferencesManager, userId));
 
         /// <summary>
         /// Sets the tier a user chooses for themselves, or clears it so they follow the default.
@@ -118,7 +94,7 @@ namespace Jellyfin.Api.Helpers
         /// <param name="userId">The user id.</param>
         /// <param name="quality">The tier to store, or <c>null</c> to follow the default.</param>
         public void SetUserQuality(Guid userId, string? quality)
-            => DownloadPreferences.SetQuality(_displayPreferencesManager, userId, quality);
+            => DownloadPreferences.SetQuality(displayPreferencesManager, userId, quality);
 
         /// <summary>
         /// Matches a tier against the enabled ones, returning it in its canonical spelling.
@@ -129,9 +105,8 @@ namespace Jellyfin.Api.Helpers
         /// The canonical spelling matters because the filename suffix is built from it, so it must
         /// never come from a client's casing.
         /// </remarks>
-        public string? ResolveEnabledQuality(string? quality)
-            => string.IsNullOrEmpty(quality)
-                ? null
-                : GetEnabledQualities().FirstOrDefault(enabled => string.Equals(enabled, quality, StringComparison.OrdinalIgnoreCase));
+        public string? ResolveEnabledQuality(string? quality) => string.IsNullOrEmpty(quality)
+            ? null
+            : GetEnabledQualities().FirstOrDefault(enabled => string.Equals(enabled, quality, StringComparison.OrdinalIgnoreCase));
     }
 }

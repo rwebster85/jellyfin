@@ -13,8 +13,11 @@ namespace MediaBrowser.Model.Configuration
         public string[] Locations { get; set; } = [];
 
         /// <summary>
-        /// Gets or sets the quality suffix a download version's filename must end with.
+        /// Gets or sets the quality tiers a download version may be served from, as names from
+        /// <see cref="DownloadQualities"/>. A user chooses one of these for themselves; a user who
+        /// has not chosen gets the first enabled tier, and a tier with no file for an item falls
+        /// back to the others.
         /// </summary>
-        public string Quality { get; set; } = "High";
+        public string[] Qualities { get; set; } = [DownloadQualities.High, DownloadQualities.Standard];
     }
 }

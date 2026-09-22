@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Jellyfin.Api.Tests.Helpers
 {
-    public sealed class DownloadHelperTests : IDisposable
+    public sealed class DownloadLocatorTests : IDisposable
     {
         private const string FolderName = "Avengers - Infinity War (2018)";
         private const string SourceName = "Avengers - Infinity War (2018) - BluRay 1080p.mkv";
@@ -46,11 +46,80 @@ namespace Jellyfin.Api.Tests.Helpers
         }
 
         [Fact]
-        public void FindDownloadVersion_IgnoresTheWrongQuality()
+        public void FindDownloadVersion_IgnoresATierTheAdminHasNotEnabled()
         {
             var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
 
-            Assert.Null(Find(location));
+            Assert.Null(FindWithQualities(["High"], null, location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_ServesEitherTierOutOfTheBox()
+        {
+            // Both tiers are enabled by default, so a Standard file is served without an admin
+            // having touched the settings page.
+            var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
+                Find(location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_ServesTheTierTheUserAskedFor()
+        {
+            var location = CreateLocation(
+                "Avengers - Infinity War (2018) - BluRay 1080p - High.mkv",
+                "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
+                FindWithQualities(["High", "Standard"], "Standard", location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_FallsBackToTheOtherTierWhenTheChosenOneHasNoFile()
+        {
+            // The live case: every portable copy is High, and a user has asked for Standard.
+            var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - High.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - High.mkv"),
+                FindWithQualities(["High", "Standard"], "Standard", location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_RefusesATierTheAdminDisabledEvenWhenTheUserAsksForIt()
+        {
+            var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
+
+            Assert.Null(FindWithQualities(["High"], "Standard", location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_PrefersTheChosenTierOverTheLocationOrder()
+        {
+            // Quality-major: the user's tier wins wherever it sits, even in a later location.
+            var first = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - High.mkv");
+            var second = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
+
+            Assert.Equal(
+                Path.Combine(second, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
+                FindWithQualities(["High", "Standard"], "Standard", first, second));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_KeepsEachTiersFallbackInsideItsOwnTier()
+        {
+            // One file per tier, neither named after the source, so both are found by the
+            // single-file fallback - which must not reach across the tier line.
+            var location = CreateLocation(
+                "Avengers - Infinity War (2018) - IMAX DV WEB-DL 2160p - High.mkv",
+                "Avengers - Infinity War (2018) - IMAX DV WEB-DL 2160p - Standard.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - IMAX DV WEB-DL 2160p - Standard.mkv"),
+                FindWithQualities(["High", "Standard"], "Standard", location));
         }
 
         [Fact]
@@ -81,13 +150,13 @@ namespace Jellyfin.Api.Tests.Helpers
         [InlineData(null)]
         public void FindDownloadVersion_ReturnsNullWithoutAFolder(string? path)
         {
-            Assert.Null(DownloadHelper.FindDownloadVersion(new DownloadOptions { Locations = [_root] }, path));
+            Assert.Null(DownloadLocator.FindDownloadVersion(new DownloadOptions { Locations = [_root] }, path));
         }
 
         [Fact]
         public void FindDownloadVersion_ReturnsNullWithoutLocations()
         {
-            Assert.Null(DownloadHelper.FindDownloadVersion(new DownloadOptions(), Path.Combine(_root, FolderName, SourceName)));
+            Assert.Null(DownloadLocator.FindDownloadVersion(new DownloadOptions(), Path.Combine(_root, FolderName, SourceName)));
         }
 
         public void Dispose()
@@ -101,9 +170,15 @@ namespace Jellyfin.Api.Tests.Helpers
         }
 
         private static string? Find(params string[] locations)
-            => DownloadHelper.FindDownloadVersion(
+            => DownloadLocator.FindDownloadVersion(
                 new DownloadOptions { Locations = locations },
                 Path.Combine("Y:", "Movies", FolderName, SourceName));
+
+        private static string? FindWithQualities(string[] qualities, string? preferred, params string[] locations)
+            => DownloadLocator.FindDownloadVersion(
+                new DownloadOptions { Locations = locations, Qualities = qualities },
+                Path.Combine("Y:", "Movies", FolderName, SourceName),
+                preferred);
 
         private string CreateLocation(params string[] fileNames)
         {
