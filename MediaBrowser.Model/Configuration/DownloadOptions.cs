@@ -48,10 +48,18 @@ namespace MediaBrowser.Model.Configuration
         public DownloadTier[] Tiers { get; set; } = DownloadTiers.CreateSeedTiers();
 
         /// <summary>
-        /// Gets or sets the id of the tier a user gets when they have not chosen one, or <c>null</c>
-        /// to use the first enabled tier.
+        /// Gets or sets the id of the tier a user gets when they have not chosen one.
         /// </summary>
-        public string? DefaultTierId { get; set; }
+        /// <remarks>
+        /// Starts as the seed's own default, so a server that has never saved its settings already
+        /// names one rather than relying on the fall-back below to pick the same tier silently.
+        ///
+        /// Empty, or naming a tier that is missing or disabled, still falls back to the first
+        /// enabled tier: an administrator editing this file by hand should not be able to leave
+        /// users with nothing. The dashboard is stricter and will not save without a default,
+        /// because there the column is right in front of them.
+        /// </remarks>
+        public string? DefaultTierId { get; set; } = DownloadTiers.SeedDefaultTierId;
 
         /// <summary>
         /// Gets or sets which download behaviour the server offers. Defaults to

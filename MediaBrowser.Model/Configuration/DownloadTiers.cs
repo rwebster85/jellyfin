@@ -27,6 +27,13 @@ namespace MediaBrowser.Model.Configuration
 
         private const string StandardId = "8d3a6f1e7c4b4a2d9e5f1b0c2d3e4f51";
 
+        /// <summary>
+        /// The tier the seed nominates as its default. Set outright rather than left to the
+        /// "first enabled tier" fall-back, so that the dashboard's Default column has a button
+        /// selected the first time an administrator opens it.
+        /// </summary>
+        public const string SeedDefaultTierId = HighId;
+
         private const string HighName = "1080p";
 
         private const string StandardName = "720p";
@@ -245,10 +252,26 @@ namespace MediaBrowser.Model.Configuration
 
             var defaultTierId = options.DefaultTierId?.Trim();
 
-            if (!string.IsNullOrEmpty(defaultTierId)
-                && Find(GetEnabled(options), defaultTierId) is null)
+            if (!string.IsNullOrEmpty(defaultTierId))
             {
-                throw new ArgumentException("The default download tier is not one of the enabled tiers. Pick one users can be given, or leave it unset.");
+                var named = Find(GetTiers(options), defaultTierId);
+
+                if (named is null)
+                {
+                    // Names no tier at all, which is what leaving the field out looks like: the
+                    // property starts on the seed's default, so a caller sending its own tiers and
+                    // no default arrives here carrying an id that means nothing to them. Clearing
+                    // it hands them the first enabled tier, which is what they asked for by saying
+                    // nothing.
+                    defaultTierId = null;
+                }
+                else if (!named.Enabled)
+                {
+                    // Naming a tier that is right there but switched off is different: it is a
+                    // choice, and it behaves exactly like no choice at all, so it is worth refusing
+                    // at the moment it is written rather than quietly doing something else.
+                    throw new ArgumentException("The default download tier is disabled, so no user can be given it. Enable it, pick another, or leave the default unset.");
+                }
             }
 
             options.DefaultTierId = defaultTierId;

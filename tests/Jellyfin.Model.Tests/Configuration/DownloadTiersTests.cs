@@ -21,6 +21,29 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         [Fact]
+        public static void GetDefault_StartsOnTheLargerSeededTier()
+        {
+            // Named outright by the seed rather than left to the first-enabled fall-back, so the
+            // dashboard's Default column is not blank the first time it is opened.
+            var options = new DownloadOptions();
+
+            Assert.Equal("High", DownloadTiers.GetDefault(options)?.Suffix);
+            Assert.Equal(DownloadTiers.SeedDefaultTierId, options.DefaultTierId);
+        }
+
+        [Fact]
+        public static void PrepareForSave_AcceptsTheSeedUntouched()
+        {
+            // The seed has to be valid on its own terms: an admin who opens the page and saves
+            // without changing anything must not get a 400.
+            var options = new DownloadOptions();
+
+            DownloadTiers.PrepareForSave(options);
+
+            Assert.Equal(DownloadTiers.SeedDefaultTierId, options.DefaultTierId);
+        }
+
+        [Fact]
         public static void CreateSeedTiers_HandsOutTheSameIdsEveryTime()
         {
             // A server that has not saved its settings builds the seed on every read. Fresh ids
@@ -276,6 +299,20 @@ namespace Jellyfin.Model.Tests.Configuration
             var options = new DownloadOptions { Tiers = [Tier("a", "Max"), Tier("a", "Min")] };
 
             Assert.Throws<ArgumentException>(() => DownloadTiers.PrepareForSave(options));
+        }
+
+        [Fact]
+        public static void PrepareForSave_ClearsADefaultThatNamesNoTier()
+        {
+            // What a caller sending its own tiers and no default looks like: DefaultTierId starts
+            // on the seed's, so it arrives carrying an id that means nothing to them. Refusing it
+            // would turn "I don't mind which" into a 400.
+            var options = new DownloadOptions { Tiers = [Tier("a", "Max")] };
+
+            DownloadTiers.PrepareForSave(options);
+
+            Assert.Null(options.DefaultTierId);
+            Assert.Equal("Max", DownloadTiers.GetDefault(options)?.Suffix);
         }
 
         [Fact]
