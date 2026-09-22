@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
@@ -38,11 +38,11 @@ namespace Jellyfin.Api.Helpers
         /// object, and an admin saving the settings page has to take effect without a restart.
         /// </remarks>
         private DownloadOptions Options
-            => serverConfigurationManager.GetConfiguration<DownloadOptions>("downloads");
+            => serverConfigurationManager.GetConfiguration<DownloadOptions>(DownloadConfigurationStore.StoreKey);
 
         /// <summary>
         /// Finds the download version of a file at the tier this user chose, falling back to the
-        /// other enabled tiers when that one has no file.
+        /// other tiers when that one has no file.
         /// </summary>
         /// <param name="path">The path of the item being downloaded.</param>
         /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
@@ -61,7 +61,7 @@ namespace Jellyfin.Api.Helpers
                 ? DownloadLocator.FindDownloadVersion(
                     options,
                     path,
-                    DownloadPreferences.GetQuality(displayPreferencesManager, userId))
+                    DownloadPreferences.GetTier(displayPreferencesManager, userId))
                 : null;
         }
 
@@ -93,16 +93,33 @@ namespace Jellyfin.Api.Helpers
             => DownloadProbeHelper.ProbeAsync(mediaEncoder, memoryCache, itemId, path, cancellationToken);
 
         /// <summary>
-        /// Gets the tiers the admin has enabled, best first.
+        /// Gets the tiers the admin has enabled, in the order they arranged them.
         /// </summary>
-        /// <returns>The enabled tiers.</returns>
-        public IReadOnlyList<string> GetEnabledQualities() => DownloadQualities.GetEnabled(Options);
+        /// <returns>The enabled tiers, or nothing at all while the feature is off.</returns>
+        /// <remarks>
+        /// <see cref="DownloadOptions.Enabled"/> is honoured here as well as in
+        /// <see cref="FindForUser"/>, because this is what a user is offered rather than what they
+        /// are served. With the feature off no optimised file is ever served, so offering a choice
+        /// between tiers would be a control that cannot change anything - and the tiers are seeded,
+        /// so a server that has never turned the feature on would still show two of them.
+        /// </remarks>
+        public IReadOnlyList<DownloadTier> GetEnabledTiers()
+        {
+            var options = Options;
+
+            return options.Enabled ? DownloadTiers.GetEnabled(options) : [];
+        }
 
         /// <summary>
         /// Gets the tier used by a user who has not chosen one.
         /// </summary>
-        /// <returns>The default tier, or <c>null</c> if the admin has enabled none.</returns>
-        public string? GetDefaultQuality() => DownloadQualities.GetDefault(Options);
+        /// <returns>The default tier, or <c>null</c> if there is none to be had.</returns>
+        public DownloadTier? GetDefaultTier()
+        {
+            var options = Options;
+
+            return options.Enabled ? DownloadTiers.GetDefault(options) : null;
+        }
 
         /// <summary>
         /// Gets the tier a user chose, as long as it is one the admin still has enabled.
@@ -114,28 +131,27 @@ namespace Jellyfin.Api.Helpers
         /// reported as none: saying otherwise would have the client display a preference that
         /// changes nothing.
         /// </remarks>
-        public string? GetUserQuality(Guid userId)
-            => ResolveEnabledQuality(DownloadPreferences.GetQuality(displayPreferencesManager, userId));
+        public DownloadTier? GetUserTier(Guid userId)
+            => ResolveEnabledTier(DownloadPreferences.GetTier(displayPreferencesManager, userId));
 
         /// <summary>
         /// Sets the tier a user chooses for themselves, or clears it so they follow the default.
         /// </summary>
         /// <param name="userId">The user id.</param>
-        /// <param name="quality">The tier to store, or <c>null</c> to follow the default.</param>
-        public void SetUserQuality(Guid userId, string? quality)
-            => DownloadPreferences.SetQuality(displayPreferencesManager, userId, quality);
+        /// <param name="tierId">The tier's id, or <c>null</c> to follow the default.</param>
+        public void SetUserTier(Guid userId, string? tierId)
+            => DownloadPreferences.SetTier(displayPreferencesManager, userId, tierId);
 
         /// <summary>
-        /// Matches a tier against the enabled ones, returning it in its canonical spelling.
+        /// Matches a stored choice against the tiers a user may actually have.
         /// </summary>
-        /// <param name="quality">The tier to match, however it was spelled.</param>
-        /// <returns>The canonical tier, or <c>null</c> if it is not one the admin has enabled.</returns>
+        /// <param name="stored">A tier id.</param>
+        /// <returns>The tier, or <c>null</c> if it is not one the admin has enabled.</returns>
         /// <remarks>
-        /// The canonical spelling matters because the filename suffix is built from it, so it must
-        /// never come from a client's casing.
+        /// The tier is returned rather than the id it was matched by, because the file name suffix
+        /// is built from it and so must never come from a client's spelling.
         /// </remarks>
-        public string? ResolveEnabledQuality(string? quality) => string.IsNullOrEmpty(quality)
-            ? null
-            : GetEnabledQualities().FirstOrDefault(enabled => string.Equals(enabled, quality, StringComparison.OrdinalIgnoreCase));
+        public DownloadTier? ResolveEnabledTier(string? stored)
+            => DownloadTiers.Find(GetEnabledTiers(), stored);
     }
 }

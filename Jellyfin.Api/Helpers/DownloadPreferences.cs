@@ -6,7 +6,7 @@ using MediaBrowser.Controller;
 namespace Jellyfin.Api.Helpers
 {
     /// <summary>
-    /// Reads and writes a user's own download quality tier.
+    /// Reads and writes a user's own download tier.
     /// </summary>
     /// <remarks>
     /// Stored through <see cref="IDisplayPreferencesManager"/>'s custom item preferences, which is the
@@ -22,17 +22,17 @@ namespace Jellyfin.Api.Helpers
         public const string Client = "downloads";
 
         /// <summary>
-        /// The key the chosen tier is stored under.
+        /// The key the chosen tier's id is stored under.
         /// </summary>
-        public const string QualityKey = "quality";
+        public const string TierKey = "tier";
 
         /// <summary>
         /// Gets the tier a user chose for themselves.
         /// </summary>
         /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
         /// <param name="userId">The user id.</param>
-        /// <returns>The chosen tier, or <c>null</c> if they have not chosen one.</returns>
-        public static string? GetQuality(IDisplayPreferencesManager displayPreferencesManager, Guid userId)
+        /// <returns>The chosen tier's suffix, or <c>null</c> if they have not chosen one.</returns>
+        public static string? GetTier(IDisplayPreferencesManager displayPreferencesManager, Guid userId)
         {
             ArgumentNullException.ThrowIfNull(displayPreferencesManager);
 
@@ -43,8 +43,8 @@ namespace Jellyfin.Api.Helpers
 
             var preferences = displayPreferencesManager.ListCustomItemDisplayPreferences(userId, Guid.Empty, Client);
 
-            return preferences.TryGetValue(QualityKey, out var quality) && !string.IsNullOrEmpty(quality)
-                ? quality
+            return preferences.TryGetValue(TierKey, out var tier) && !string.IsNullOrEmpty(tier)
+                ? tier
                 : null;
         }
 
@@ -53,15 +53,15 @@ namespace Jellyfin.Api.Helpers
         /// </summary>
         /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
         /// <param name="userId">The user id.</param>
-        /// <param name="quality">The tier to store, or <c>null</c> to follow the default.</param>
-        public static void SetQuality(IDisplayPreferencesManager displayPreferencesManager, Guid userId, string? quality)
+        /// <param name="tier">The tier's suffix, or <c>null</c> to follow the default.</param>
+        public static void SetTier(IDisplayPreferencesManager displayPreferencesManager, Guid userId, string? tier)
         {
             ArgumentNullException.ThrowIfNull(displayPreferencesManager);
 
             var preferences = new Dictionary<string, string?>();
-            if (!string.IsNullOrEmpty(quality))
+            if (!string.IsNullOrEmpty(tier))
             {
-                preferences[QualityKey] = quality;
+                preferences[TierKey] = tier;
             }
 
             // The setter replaces everything stored for this user and client, so an empty dictionary

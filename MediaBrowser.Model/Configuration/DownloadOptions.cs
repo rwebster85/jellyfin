@@ -27,12 +27,31 @@ namespace MediaBrowser.Model.Configuration
         public string[] Locations { get; set; } = [];
 
         /// <summary>
-        /// Gets or sets the quality tiers a download version may be served from, as names from
-        /// <see cref="DownloadQualities"/>. A user chooses one of these for themselves; a user who
-        /// has not chosen gets the first enabled tier, and a tier with no file for an item falls
-        /// back to the others.
+        /// Gets or sets the quality tiers this server offers, best first.
         /// </summary>
-        public string[] Qualities { get; set; } = [DownloadQualities.High, DownloadQualities.Standard];
+        /// <remarks>
+        /// Read through <see cref="DownloadTiers.GetTiers"/> rather than directly, which tidies a
+        /// list that may have been edited by hand.
+        ///
+        /// The order carries the fall-back sequence - a tier with no file for an item is followed by
+        /// the next one - but not the default, which <see cref="DefaultTierId"/> names outright.
+        /// Reordering therefore changes what is tried second, not what a user who has never chosen
+        /// receives.
+        ///
+        /// A server with no settings file yet starts from <see cref="DownloadTiers.CreateSeedTiers"/>
+        /// - working examples matching what <c>tools/Portable</c> emits, rather than placeholders
+        /// that would match nothing. An administrator who wants none deletes them, and an empty
+        /// <c>&lt;Tiers /&gt;</c> element stays empty: the serializer only leaves this initial value
+        /// in place when the element is absent altogether, which is a file that has never been
+        /// saved.
+        /// </remarks>
+        public DownloadTier[] Tiers { get; set; } = DownloadTiers.CreateSeedTiers();
+
+        /// <summary>
+        /// Gets or sets the id of the tier a user gets when they have not chosen one, or <c>null</c>
+        /// to use the first enabled tier.
+        /// </summary>
+        public string? DefaultTierId { get; set; }
 
         /// <summary>
         /// Gets or sets which download behaviour the server offers. Defaults to

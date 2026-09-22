@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
 using Jellyfin.Api.Models.DownloadDtos;
@@ -20,35 +21,40 @@ namespace Jellyfin.Api.Controllers
     public class DownloadsController(DownloadHelper downloadHelper) : BaseJellyfinApiController
     {
         /// <summary>
-        /// Gets the download quality tiers this user may choose from, and the one they are on.
+        /// Gets the download tiers this user may choose from, and the one they are on.
         /// </summary>
-        /// <response code="200">Download quality options returned.</response>
+        /// <response code="200">Download tier options returned.</response>
         /// <returns>The available tiers, the default, and this user's own choice.</returns>
-        [HttpGet("Quality")]
+        [HttpGet("Tier")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public ActionResult<DownloadQualityOptionsDto> GetDownloadQuality()
+        public ActionResult<DownloadTierOptionsDto> GetDownloadTier()
         {
-            return new DownloadQualityOptionsDto
+            return new DownloadTierOptionsDto
             {
-                Qualities = downloadHelper.GetEnabledQualities(),
-                DefaultQuality = downloadHelper.GetDefaultQuality(),
-                Quality = downloadHelper.GetUserQuality(User.GetUserId())
+                Tiers = [.. downloadHelper.GetEnabledTiers().Select(tier => new DownloadTierInfoDto
+                {
+                    Id = tier.Id,
+                    Name = tier.Name,
+                    Description = tier.Description
+                })],
+                DefaultTierId = downloadHelper.GetDefaultTier()?.Id,
+                TierId = downloadHelper.GetUserTier(User.GetUserId())?.Id
             };
         }
 
         /// <summary>
-        /// Sets the download quality tier for this user, or clears it so they follow the default.
+        /// Sets the download tier for this user, or clears it so they follow the default.
         /// </summary>
-        /// <param name="downloadQualityDto">The tier to use.</param>
-        /// <response code="204">Download quality updated.</response>
+        /// <param name="downloadTierDto">The tier to use.</param>
+        /// <response code="204">Download tier updated.</response>
         /// <response code="400">The tier is not one the admin has enabled.</response>
         /// <response code="401">User context missing.</response>
         /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
-        [HttpPost("Quality")]
+        [HttpPost("Tier")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        public ActionResult SetDownloadQuality([FromBody, Required] DownloadQualityDto downloadQualityDto)
+        public ActionResult SetDownloadTier([FromBody, Required] DownloadTierDto downloadTierDto)
         {
             var userId = User.GetUserId();
             if (userId.IsEmpty())
@@ -56,26 +62,28 @@ namespace Jellyfin.Api.Controllers
                 return Unauthorized();
             }
 
-            if (downloadQualityDto is null)
+            if (downloadTierDto is null)
             {
                 return NoContent();
             }
 
-            var quality = downloadQualityDto.Quality;
+            var tierId = downloadTierDto.TierId;
 
-            if (!string.IsNullOrEmpty(quality))
+            if (!string.IsNullOrEmpty(tierId))
             {
-                // Match against the enabled tiers rather than trusting the body, and store the
-                // canonical spelling so the filename suffix is never built from a client's casing.
-                quality = downloadHelper.ResolveEnabledQuality(quality);
+                // Match against the enabled tiers rather than trusting the body, and store the id
+                // the server holds rather than the spelling that arrived.
+                var tier = downloadHelper.ResolveEnabledTier(tierId);
 
-                if (quality is null)
+                if (tier is null)
                 {
-                    return BadRequest("Quality is not an enabled download tier");
+                    return BadRequest("TierId is not an enabled download tier");
                 }
+
+                tierId = tier.Id;
             }
 
-            downloadHelper.SetUserQuality(userId, quality);
+            downloadHelper.SetUserTier(userId, tierId);
 
             return NoContent();
         }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Jellyfin.Api.Helpers;
 using MediaBrowser.Model.Configuration;
 using Xunit;
@@ -56,7 +57,7 @@ namespace Jellyfin.Api.Tests.Helpers
             // of what unticking it was for.
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
-                FindWithQualities(["High"], null, location));
+                FindWithTiers(["High"], null, location));
         }
 
         [Fact]
@@ -68,7 +69,7 @@ namespace Jellyfin.Api.Tests.Helpers
 
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
-                FindWithQualities(["Standard"], null, location));
+                FindWithTiers(["Standard"], null, location));
         }
 
         [Fact]
@@ -145,7 +146,7 @@ namespace Jellyfin.Api.Tests.Helpers
 
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
-                FindWithQualities(["High", "Standard"], "Standard", location));
+                FindWithTiers(["High", "Standard"], "id-Standard", location));
         }
 
         [Fact]
@@ -156,7 +157,7 @@ namespace Jellyfin.Api.Tests.Helpers
 
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - High.mkv"),
-                FindWithQualities(["High", "Standard"], "Standard", location));
+                FindWithTiers(["High", "Standard"], "id-Standard", location));
         }
 
         [Fact]
@@ -169,7 +170,7 @@ namespace Jellyfin.Api.Tests.Helpers
             // the item's own file rather than nothing.
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
-                FindWithQualities(["High"], "Standard", location));
+                FindWithTiers(["High"], "id-Standard", location));
         }
 
         [Fact]
@@ -181,7 +182,7 @@ namespace Jellyfin.Api.Tests.Helpers
 
             Assert.Equal(
                 Path.Combine(second, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
-                FindWithQualities(["High", "Standard"], "Standard", first, second));
+                FindWithTiers(["High", "Standard"], "id-Standard", first, second));
         }
 
         [Fact]
@@ -195,7 +196,7 @@ namespace Jellyfin.Api.Tests.Helpers
 
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - IMAX DV WEB-DL 2160p - Standard.mkv"),
-                FindWithQualities(["High", "Standard"], "Standard", location));
+                FindWithTiers(["High", "Standard"], "id-Standard", location));
         }
 
         [Fact]
@@ -250,11 +251,29 @@ namespace Jellyfin.Api.Tests.Helpers
                 new DownloadOptions { Locations = locations },
                 Path.Combine("Y:", "Movies", FolderName, SourceName));
 
-        private static string? FindWithQualities(string[] qualities, string? preferred, params string[] locations)
+        /// <summary>
+        /// Runs the lookup against the two tiers these tests use, enabled by membership of
+        /// <paramref name="enabled"/> - the admin's ticks. A tier left out is still defined, and so
+        /// is still searched, last.
+        /// </summary>
+        private static string? FindWithTiers(string[] enabled, string? preferred, params string[] locations)
             => DownloadLocator.FindDownloadVersion(
-                new DownloadOptions { Locations = locations, Qualities = qualities },
+                new DownloadOptions
+                {
+                    Locations = locations,
+                    Tiers = [Tier("High", enabled), Tier("Standard", enabled)]
+                },
                 Path.Combine("Y:", "Movies", FolderName, SourceName),
                 preferred);
+
+        private static DownloadTier Tier(string suffix, string[] enabled)
+            => new DownloadTier
+            {
+                Id = "id-" + suffix,
+                Suffix = suffix,
+                Name = suffix,
+                Enabled = enabled.Contains(suffix, StringComparer.OrdinalIgnoreCase)
+            };
 
         private string CreateLocation(params string[] fileNames)
         {

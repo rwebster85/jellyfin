@@ -22,7 +22,8 @@ namespace Jellyfin.Api.Helpers
         /// the next tier is tried anywhere. A tier is a choice somebody made; which location a file
         /// happens to sit in is not, so the tier wins.
         ///
-        /// Tiers are opt-in. A file named <c>&lt;stem&gt; - High</c> joins the tier system; a folder
+        /// Tiers are opt-in. A file whose name ends with a suffix the administrator defined joins
+        /// the tier system - <c>&lt;stem&gt; - High</c>, if that is what they called one; a folder
         /// holding one plainly-named video is served as-is, so an admin who does not care about two
         /// sizes never has to learn the suffix. That untiered file is the last thing tried, after
         /// every tier including ones the admin has not enabled, because the only remaining
@@ -30,9 +31,9 @@ namespace Jellyfin.Api.Helpers
         /// </remarks>
         /// <param name="options">The download options.</param>
         /// <param name="path">The path of the item being downloaded.</param>
-        /// <param name="preferredQuality">The tier the user asked for, or <c>null</c> for the default.</param>
+        /// <param name="preferredTier">The tier the user asked for, or <c>null</c> for the default.</param>
         /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
-        public static string? FindDownloadVersion(DownloadOptions options, string? path, string? preferredQuality = null)
+        public static string? FindDownloadVersion(DownloadOptions options, string? path, string? preferredTier = null)
         {
             ArgumentNullException.ThrowIfNull(options);
 
@@ -48,9 +49,9 @@ namespace Jellyfin.Api.Helpers
                 return null;
             }
 
-            foreach (var quality in DownloadQualities.GetSearchOrder(options, preferredQuality))
+            foreach (var suffix in DownloadTiers.GetSearchOrder(options, preferredTier))
             {
-                var match = FindInLocations(options.Locations, folderName, stem, quality);
+                var match = FindInLocations(options.Locations, folderName, stem, suffix);
                 if (match is not null)
                 {
                     return match;
@@ -60,9 +61,9 @@ namespace Jellyfin.Api.Helpers
             return FindUntieredInLocations(options.Locations, folderName);
         }
 
-        private static string? FindInLocations(string[] locations, string folderName, string stem, string quality)
+        private static string? FindInLocations(string[] locations, string folderName, string stem, string suffixName)
         {
-            var suffix = " - " + quality;
+            var suffix = " - " + suffixName;
             var preferredName = stem + suffix;
 
             foreach (var location in locations)
@@ -100,7 +101,7 @@ namespace Jellyfin.Api.Helpers
         /// </summary>
         /// <remarks>
         /// This runs on filename alone, so <strong>any unrecognised suffix is treated as
-        /// untiered</strong>. Only the names in <see cref="DownloadQualities.All"/> are tiers;
+        /// untiered</strong>. Only the suffixes the administrator defined are tiers;
         /// <c>Film - Low.mkv</c> or a typo like <c>Film - Hihg.mkv</c> matches no tier and arrives
         /// here, where it is served like any other single file. Forgiving on purpose - the admin
         /// plainly meant that file to be used.
