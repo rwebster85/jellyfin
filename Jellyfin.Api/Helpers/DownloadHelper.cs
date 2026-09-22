@@ -47,10 +47,23 @@ namespace Jellyfin.Api.Helpers
         /// <param name="path">The path of the item being downloaded.</param>
         /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
         /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
-        public string? FindForUser(string? path, Guid userId) => DownloadLocator.FindDownloadVersion(
-            Options,
-            path,
-            DownloadPreferences.GetQuality(displayPreferencesManager, userId));
+        /// <remarks>
+        /// The single place that answers "is there an optimised file for this user", so it is also
+        /// where <see cref="DownloadOptions.Enabled"/> is honoured: with the feature off there is
+        /// never one, which leaves the plain route serving the item's own file and the
+        /// <c>Download/Optimised</c> pair answering 404.
+        /// </remarks>
+        public string? FindForUser(string? path, Guid userId)
+        {
+            var options = Options;
+
+            return options.Enabled
+                ? DownloadLocator.FindDownloadVersion(
+                    options,
+                    path,
+                    DownloadPreferences.GetQuality(displayPreferencesManager, userId))
+                : null;
+        }
 
         /// <summary>
         /// Finds the download version the plain download route should serve in place of an item's

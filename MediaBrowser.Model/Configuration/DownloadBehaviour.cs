@@ -9,26 +9,14 @@ namespace MediaBrowser.Model.Configuration
     /// each time. Both behaviours exist in the code, and offering both at once is what this setting
     /// exists to prevent - a plain download that quietly substitutes while a second entry offers the
     /// same file explicitly tells two stories about one button.
+    ///
+    /// The values are ordered so that the safer one is zero, which is what an existing
+    /// <c>downloads.xml</c> with no element for this setting reads back as. That mattered less once
+    /// <see cref="DownloadOptions.Enabled"/> arrived - a server with the feature off is unaffected
+    /// either way - but it still decides what an admin gets the moment they switch it on.
     /// </remarks>
     public enum DownloadBehaviour
     {
-        /// <summary>
-        /// The optimised workflow replaces the normal one. The plain download serves the optimised
-        /// copy in place of the item's own file, and no separate action is offered, so a user takes
-        /// the optimised copy whenever one exists and the original otherwise.
-        /// </summary>
-        /// <remarks>
-        /// For an admin who wants the optimised copy to be what downloading means - to keep
-        /// transfers small, say - without asking users to understand the distinction or choose
-        /// correctly.
-        ///
-        /// It is also the default, and that is a compatibility decision rather than a preference:
-        /// an existing <c>downloads.xml</c> has no element for this setting, so it reads back as
-        /// this enum's zero value. Anything else here would silently change what every plain
-        /// download serves on upgrade.
-        /// </remarks>
-        Substitute = 0,
-
         /// <summary>
         /// Both files are reachable and the user picks. The plain download serves the item's own
         /// file, exactly as an unmodified server would, and the optimised copy is a separate action
@@ -39,10 +27,27 @@ namespace MediaBrowser.Model.Configuration
         /// full-quality file, the optimised copy when size matters more. Honest about which file is
         /// being served, at the cost of asking the user to know the difference.
         ///
+        /// The default, because it does not redefine what an existing button means. Turning the
+        /// feature on adds an action rather than silently changing one, so an admin who wants
+        /// substitution opts into it deliberately.
+        ///
         /// A client can only offer the explicit action if it can actually request it. One that
         /// rebuilds its own download URL from the item id is expected to hide the action rather than
         /// offer one that would quietly serve the original.
         /// </remarks>
-        SeparateAction = 1,
+        SeparateAction = 0,
+
+        /// <summary>
+        /// The optimised workflow replaces the normal one. The plain download serves the optimised
+        /// copy in place of the item's own file, and no separate action is offered, so a user takes
+        /// the optimised copy whenever one exists and the original otherwise.
+        /// </summary>
+        /// <remarks>
+        /// For an admin who wants the optimised copy to be what downloading means - to keep
+        /// transfers small, say - without asking users to understand the distinction or choose
+        /// correctly. It is also the only behaviour a client that rebuilds its own download URL can
+        /// benefit from without being taught the new request.
+        /// </remarks>
+        Substitute = 1,
     }
 }
