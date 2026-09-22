@@ -62,13 +62,32 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         [Fact]
-        public static void GetSearchOrder_IgnoresATierTheAdminHasTurnedOff()
+        public static void GetSearchOrder_DemotesATierTheAdminHasTurnedOff()
         {
-            // The user chose Standard, then the admin unticked it. They follow the default rather
-            // than getting nothing.
+            // The user chose Standard, then the admin unticked it. Their choice stops counting, so
+            // the enabled order leads - but Standard is searched last rather than dropped, because
+            // the only thing after it is the item's own file.
             var options = new DownloadOptions { Qualities = ["High"] };
 
-            Assert.Equal(["High"], DownloadQualities.GetSearchOrder(options, "Standard"));
+            Assert.Equal(["High", "Standard"], DownloadQualities.GetSearchOrder(options, "Standard"));
+        }
+
+        [Fact]
+        public static void GetSearchOrder_SearchesEverythingWhenNothingIsEnabled()
+        {
+            var options = new DownloadOptions { Qualities = [] };
+
+            Assert.Equal(["High", "Standard"], DownloadQualities.GetSearchOrder(options, null));
+        }
+
+        [Fact]
+        public static void GetEnabled_IsUnaffectedByTheSearchOrderChange()
+        {
+            // What a user may choose, and what the default is, still follow the ticks exactly.
+            var options = new DownloadOptions { Qualities = ["Standard"] };
+
+            Assert.Equal(["Standard"], DownloadQualities.GetEnabled(options));
+            Assert.Equal("Standard", DownloadQualities.GetDefault(options));
         }
     }
 }

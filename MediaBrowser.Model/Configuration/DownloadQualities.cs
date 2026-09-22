@@ -58,29 +58,38 @@ namespace MediaBrowser.Model.Configuration
 
         /// <summary>
         /// Gets the tiers to look for, in the order they should be tried: the user's own tier
-        /// first when it is one the admin enabled, then the rest.
+        /// first when it is one the admin enabled, then the rest of the enabled tiers, and finally
+        /// the tiers the admin has not enabled.
         /// </summary>
         /// <param name="options">The download options.</param>
         /// <param name="preferred">The user's chosen tier, or <c>null</c>.</param>
         /// <returns>The tiers to try, in order.</returns>
+        /// <remarks>
+        /// A tier the admin has not enabled is still searched, last. Enabling a tier decides what a
+        /// user may <em>choose</em> and what the default is; it is not a rule about which files may
+        /// ever be served. The alternative to serving a rendition of an unenabled tier is serving
+        /// the item's own file, which is larger than any rendition - so treating the tick as a
+        /// prohibition achieves the opposite of what unticking it was for.
+        /// </remarks>
         public static IReadOnlyList<string> GetSearchOrder(DownloadOptions options, string? preferred)
         {
             var enabled = GetEnabled(options);
-            if (string.IsNullOrEmpty(preferred))
+
+            // Null when the user has not chosen, or chose a tier the admin has since turned off.
+            // Either way it stops being a preference and the enabled order stands.
+            var chosen = string.IsNullOrEmpty(preferred)
+                ? null
+                : enabled.FirstOrDefault(quality => string.Equals(quality, preferred, StringComparison.OrdinalIgnoreCase));
+
+            var order = new List<string>(All.Count);
+
+            if (chosen is not null)
             {
-                return enabled;
+                order.Add(chosen);
             }
 
-            var chosen = enabled.FirstOrDefault(quality => string.Equals(quality, preferred, StringComparison.OrdinalIgnoreCase));
-            if (chosen is null)
-            {
-                // A tier the admin has since turned off. Treat it as no choice at all rather than
-                // as a reason to serve nothing.
-                return enabled;
-            }
-
-            var order = new List<string>(enabled.Count) { chosen };
             order.AddRange(enabled.Where(quality => !string.Equals(quality, chosen, StringComparison.Ordinal)));
+            order.AddRange(All.Where(quality => !enabled.Contains(quality, StringComparer.OrdinalIgnoreCase)));
 
             return order;
         }

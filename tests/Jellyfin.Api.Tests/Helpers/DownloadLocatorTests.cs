@@ -46,11 +46,82 @@ namespace Jellyfin.Api.Tests.Helpers
         }
 
         [Fact]
-        public void FindDownloadVersion_IgnoresATierTheAdminHasNotEnabled()
+        public void FindDownloadVersion_StillServesATierTheAdminHasNotEnabled()
         {
             var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
 
-            Assert.Null(FindWithQualities(["High"], null, location));
+            // Enabling a tier decides what a user may choose, not which files may ever be served.
+            // The only alternative here is the item's own file, which is far larger than the
+            // rendition being refused - so treating the tick as a prohibition achieves the opposite
+            // of what unticking it was for.
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
+                FindWithQualities(["High"], null, location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_PrefersAnEnabledTierOverADisabledOne()
+        {
+            var location = CreateLocation(
+                "Avengers - Infinity War (2018) - BluRay 1080p - High.mkv",
+                "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
+                FindWithQualities(["Standard"], null, location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_ServesAnUntieredFileWhenItIsTheOnlyOne()
+        {
+            // Tiers are opt-in: an admin who does not care about two sizes drops one plainly-named
+            // file into the folder and it is served.
+            var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p.mkv"),
+                Find(location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_ServesAnUntieredFileWhateverItIsCalled()
+        {
+            var location = CreateLocation("portable copy.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "portable copy.mkv"),
+                Find(location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_PrefersATieredFileOverAnUntieredOne()
+        {
+            var location = CreateLocation(
+                "Avengers - Infinity War (2018) - BluRay 1080p - High.mkv",
+                "something else entirely.mkv");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - High.mkv"),
+                Find(location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_RefusesToGuessBetweenTwoUntieredFiles()
+        {
+            var location = CreateLocation("one.mkv", "two.mkv");
+
+            // Handing somebody the wrong film is worse than falling through to the original.
+            Assert.Null(Find(location));
+        }
+
+        [Fact]
+        public void FindDownloadVersion_IgnoresNonVideosWhenLookingForAnUntieredFile()
+        {
+            var location = CreateLocation("portable copy.mkv", "notes.txt", "cover.jpg");
+
+            Assert.Equal(
+                Path.Combine(location, FolderName, "portable copy.mkv"),
+                Find(location));
         }
 
         [Fact]
@@ -89,11 +160,16 @@ namespace Jellyfin.Api.Tests.Helpers
         }
 
         [Fact]
-        public void FindDownloadVersion_RefusesATierTheAdminDisabledEvenWhenTheUserAsksForIt()
+        public void FindDownloadVersion_ServesATierTheAdminDisabledWhenItIsAllThereIs()
         {
             var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
 
-            Assert.Null(FindWithQualities(["High"], "Standard", location));
+            // The user's stored choice is stale - the admin has since turned Standard off - so it
+            // stops counting as a preference. The file is still served, because the alternative is
+            // the item's own file rather than nothing.
+            Assert.Equal(
+                Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
+                FindWithQualities(["High"], "Standard", location));
         }
 
         [Fact]
