@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -27,11 +26,9 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.Activity;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
@@ -53,12 +50,9 @@ public class LibraryController : BaseJellyfinApiController
     private readonly IUserManager _userManager;
     private readonly ICollectionManager _collectionManager;
     private readonly IDtoService _dtoService;
-    private readonly IActivityManager _activityManager;
-    private readonly ILocalizationManager _localization;
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ILogger<LibraryController> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
-    private readonly DownloadHelper _downloadHelper;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryController"/> class.
@@ -69,12 +63,9 @@ public class LibraryController : BaseJellyfinApiController
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
     /// <param name="collectionManager">Instance of the <see cref="ICollectionManager"/> interface.</param>
     /// <param name="dtoService">Instance of the <see cref="IDtoService"/> interface.</param>
-    /// <param name="activityManager">Instance of the <see cref="IActivityManager"/> interface.</param>
-    /// <param name="localization">Instance of the <see cref="ILocalizationManager"/> interface.</param>
     /// <param name="libraryMonitor">Instance of the <see cref="ILibraryMonitor"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{LibraryController}"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
-    /// <param name="downloadHelper">Instance of the <see cref="DownloadHelper"/>.</param>
     public LibraryController(
         IProviderManager providerManager,
         ISimilarItemsManager similarItemsManager,
@@ -82,12 +73,9 @@ public class LibraryController : BaseJellyfinApiController
         IUserManager userManager,
         ICollectionManager collectionManager,
         IDtoService dtoService,
-        IActivityManager activityManager,
-        ILocalizationManager localization,
         ILibraryMonitor libraryMonitor,
         ILogger<LibraryController> logger,
-        IServerConfigurationManager serverConfigurationManager,
-        DownloadHelper downloadHelper)
+        IServerConfigurationManager serverConfigurationManager)
     {
         _providerManager = providerManager;
         _similarItemsManager = similarItemsManager;
@@ -95,12 +83,9 @@ public class LibraryController : BaseJellyfinApiController
         _userManager = userManager;
         _collectionManager = collectionManager;
         _dtoService = dtoService;
-        _activityManager = activityManager;
-        _localization = localization;
         _libraryMonitor = libraryMonitor;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
-        _downloadHelper = downloadHelper;
     }
 
     /// <summary>
@@ -663,76 +648,6 @@ public class LibraryController : BaseJellyfinApiController
     }
 
     /// <summary>
-    /// Downloads item media.
-    /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <response code="200">Media downloaded.</response>
-    /// <response code="404">Item not found.</response>
-    /// <returns>A <see cref="FileResult"/> containing the media stream.</returns>
-    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
-    [HttpGet("Items/{itemId}/Download")]
-    [Authorize(Policy = Policies.Download)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesFile("video/*", "audio/*")]
-    public async Task<ActionResult> GetDownload([FromRoute, Required] Guid itemId)
-    {
-        var userId = User.GetUserId();
-        var user = userId.IsEmpty()
-            ? null
-            : _userManager.GetUserById(userId);
-        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
-        if (item is null)
-        {
-            return NotFound();
-        }
-
-        if (user is not null)
-        {
-            if (!item.CanDownload(user))
-            {
-                throw new ArgumentException("Item does not support downloading");
-            }
-        }
-        else
-        {
-            if (!item.CanDownload())
-            {
-                throw new ArgumentException("Item does not support downloading");
-            }
-        }
-
-        if (user is not null)
-        {
-            await LogDownloadAsync(item, user).ConfigureAwait(false);
-        }
-
-        // An optimised download version, when the server is set to serve one in place of the item's own file.
-        var downloadVersion = _downloadHelper.FindForPlainDownload(item.Path, user?.Id ?? Guid.Empty);
-        if (downloadVersion is not null)
-        {
-            _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
-        }
-
-        var filePath = downloadVersion ?? item.Path;
-
-        // Quotes are valid in linux. They'll possibly cause issues here.
-        var filename = Path.GetFileName(filePath)?.Replace("\"", string.Empty, StringComparison.Ordinal);
-
-        if (item.IsFileProtocol)
-        {
-            // PhysicalFile does not work well with symlinks at the moment.
-            var resolved = FileSystemHelper.ResolveLinkTarget(filePath, returnFinalTarget: true);
-            if (resolved is not null && resolved.Exists)
-            {
-                filePath = resolved.FullName;
-            }
-        }
-
-        return PhysicalFile(filePath, MimeTypes.GetMimeType(filePath), filename, true);
-    }
-
-    /// <summary>
     /// Gets the collections that include the specified item.
     /// </summary>
     /// <param name="itemId">The item id.</param>
@@ -1004,25 +919,6 @@ public class LibraryController : BaseJellyfinApiController
             ? _libraryManager.GetUserRootFolder().GetChildren(user, true)
                 .FirstOrDefault(i => i.PhysicalLocations.Contains(item.Path))
             : item;
-    }
-
-    private async Task LogDownloadAsync(BaseItem item, User user)
-    {
-        try
-        {
-            await _activityManager.CreateAsync(new ActivityLog(
-                string.Format(CultureInfo.InvariantCulture, _localization.GetServerLocalizedString("UserDownloadingItemWithValues"), user.Username, item.Name),
-                "UserDownloadingContent",
-                User.GetUserId())
-            {
-                ShortOverview = string.Format(CultureInfo.InvariantCulture, _localization.GetServerLocalizedString("AppDeviceValues"), User.GetClient(), User.GetDevice()),
-                ItemId = item.Id.ToString("N", CultureInfo.InvariantCulture)
-            }).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Logged at lower levels
-        }
     }
 
     private static string[] GetRepresentativeItemTypes(CollectionType? contentType)
