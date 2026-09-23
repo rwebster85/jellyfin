@@ -768,12 +768,61 @@ public class LibraryController : BaseJellyfinApiController
             return NotFound();
         }
 
-        var mediaSource = await _downloadHelper.ProbeAsync(itemId, downloadVersion, cancellationToken)
+        var mediaSource = await _downloadHelper.DescribeAsync(item, user, downloadVersion, cancellationToken)
             .ConfigureAwait(false);
 
         if (mediaSource is null)
         {
             return NotFound();
+        }
+
+        return mediaSource;
+    }
+
+    /// <summary>
+    /// Gets the media info of the optimised version <c>Items/{itemId}/Download</c> would serve in
+    /// place of the item's own file, if it would serve one at all.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <response code="200">Media info of the file that would be served instead.</response>
+    /// <response code="204">The item's own file would be served, so its own media info describes it.</response>
+    /// <response code="404">Item not found.</response>
+    /// <returns>The <see cref="MediaSourceInfo"/> of the substituted version, or no content.</returns>
+    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
+    /// <remarks>
+    /// For a client that stores a description of what it downloaded. Under substitution the plain
+    /// route can hand over a different file from the one the item describes - another container,
+    /// other tracks - and nothing in the response says so. No content, rather than 404, when there
+    /// is no substitute, because the item's own file is a real answer here, not a missing one.
+    /// </remarks>
+    [HttpGet("Items/{itemId}/Download/MediaInfo")]
+    [Authorize(Policy = Policies.Download)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MediaSourceInfo>> GetDownloadMediaInfo(
+        [FromRoute, Required] Guid itemId,
+        CancellationToken cancellationToken)
+    {
+        var (item, user) = GetDownloadableItem(itemId);
+        if (item is null)
+        {
+            return NotFound();
+        }
+
+        var downloadVersion = FindSubstituteVersion(item, user);
+        if (downloadVersion is null)
+        {
+            return NoContent();
+        }
+
+        var mediaSource = await _downloadHelper.DescribeAsync(item, user, downloadVersion, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (mediaSource is null)
+        {
+            return NoContent();
         }
 
         return mediaSource;

@@ -20,8 +20,14 @@ namespace Jellyfin.Api.Models.DownloadDtos
         public string? DefaultTierId { get; set; }
 
         /// <summary>
-        /// Gets or sets the id of the tier this user chose, or <c>null</c> when they follow the
-        /// default.
+        /// Gets or sets a value indicating whether the original file is offered as a choice alongside
+        /// the tiers. It is chosen by posting <c>original</c> as the tier id.
+        /// </summary>
+        public bool OriginalAvailable { get; set; }
+
+        /// <summary>
+        /// Gets or sets the id of the tier this user chose, <c>original</c> when they chose the
+        /// original file, or <c>null</c> when they follow the default.
         /// </summary>
         public string? TierId { get; set; }
     }

@@ -67,5 +67,25 @@ namespace MediaBrowser.Model.Configuration
         /// action rather than silently changing what the existing Download button does.
         /// </summary>
         public DownloadBehaviour Behaviour { get; set; } = DownloadBehaviour.SeparateAction;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether a user may choose to receive the original file
+        /// rather than an optimised copy.
+        /// </summary>
+        /// <remarks>
+        /// Only meaningful under <see cref="DownloadBehaviour.Substitute"/>, where the plain Download
+        /// is the only way to download and would otherwise always hand over the optimised copy.
+        /// Under <see cref="DownloadBehaviour.SeparateAction"/> the plain Download already serves the
+        /// original, so there is nothing to opt out of - and an Optimised Download that honoured the
+        /// choice would serve the original under a label that says otherwise.
+        ///
+        /// A permission rather than a tier, so it is not in <see cref="Tiers"/>: by quality the
+        /// original would sort to the top of that list and by fall-back it is the very end, and one
+        /// list cannot mean both. It is never anybody's default either - a user gets it only by
+        /// choosing it. On by default for that reason; an administrator who does not want
+        /// full-size files pulled over the internet turns it off, and users who had chosen it go
+        /// back to the default tier.
+        /// </remarks>
+        public bool AllowOriginal { get; set; } = true;
     }
 }

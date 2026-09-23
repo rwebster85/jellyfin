@@ -34,6 +34,18 @@ namespace MediaBrowser.Model.Configuration
         /// </summary>
         public const string SeedDefaultTierId = HighId;
 
+        /// <summary>
+        /// The stored preference value meaning "give me the original file", which is a choice a user
+        /// can make but not a tier (see <see cref="DownloadOptions.AllowOriginal"/>).
+        /// </summary>
+        /// <remarks>
+        /// Stored where a tier id goes, so it has to be something no tier can be: every generated id
+        /// is 32 hex characters, and <see cref="PrepareForSave"/> refuses it as a hand-written one.
+        /// It is checked before a stored value is resolved against the tiers, never by
+        /// <see cref="Find"/>, which only ever answers with a tier.
+        /// </remarks>
+        public const string OriginalId = "original";
+
         private const string HighName = "1080p";
 
         private const string StandardName = "720p";
@@ -240,6 +252,10 @@ namespace MediaBrowser.Model.Configuration
                 {
                     id = Guid.NewGuid().ToString("N");
                 }
+                else if (IsOriginal(id))
+                {
+                    throw new ArgumentException($"'{OriginalId}' cannot be a download tier's id - it is what a user's saved choice of the original file is stored as.");
+                }
                 else if (!ids.Add(id))
                 {
                     throw new ArgumentException($"Two download tiers share the id '{id}'. Ids are what a user's saved choice points at, so they cannot be reused.");
@@ -276,6 +292,14 @@ namespace MediaBrowser.Model.Configuration
 
             options.DefaultTierId = defaultTierId;
         }
+
+        /// <summary>
+        /// Whether a stored choice is the original file rather than a tier.
+        /// </summary>
+        /// <param name="stored">A stored choice.</param>
+        /// <returns><c>true</c> when it is <see cref="OriginalId"/>.</returns>
+        public static bool IsOriginal(string? stored)
+            => string.Equals(stored?.Trim(), OriginalId, StringComparison.OrdinalIgnoreCase);
 
         private static DownloadTier? ResolveDefault(IReadOnlyList<DownloadTier> enabled, string? defaultTierId)
             => Find(enabled, defaultTierId) ?? (enabled.Count > 0 ? enabled[0] : null);

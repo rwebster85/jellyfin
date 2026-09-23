@@ -31,7 +31,8 @@ namespace Jellyfin.Api.Helpers
         /// </summary>
         /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
         /// <param name="userId">The user id.</param>
-        /// <returns>The chosen tier's suffix, or <c>null</c> if they have not chosen one.</returns>
+        /// <returns>The chosen tier's id, <see cref="MediaBrowser.Model.Configuration.DownloadTiers.OriginalId"/>
+        /// if they chose the original file, or <c>null</c> if they have not chosen.</returns>
         public static string? GetTier(IDisplayPreferencesManager displayPreferencesManager, Guid userId)
         {
             ArgumentNullException.ThrowIfNull(displayPreferencesManager);
@@ -53,7 +54,8 @@ namespace Jellyfin.Api.Helpers
         /// </summary>
         /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
         /// <param name="userId">The user id.</param>
-        /// <param name="tier">The tier's suffix, or <c>null</c> to follow the default.</param>
+        /// <param name="tier">The tier's id, <see cref="MediaBrowser.Model.Configuration.DownloadTiers.OriginalId"/>,
+        /// or <c>null</c> to follow the default.</param>
         public static void SetTier(IDisplayPreferencesManager displayPreferencesManager, Guid userId, string? tier)
         {
             ArgumentNullException.ThrowIfNull(displayPreferencesManager);

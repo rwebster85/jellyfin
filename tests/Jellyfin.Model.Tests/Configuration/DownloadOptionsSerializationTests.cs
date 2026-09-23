@@ -61,6 +61,24 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         [Fact]
+        public static void AFileWrittenBeforeAllowOriginal_KeepsItOn()
+        {
+            // Every settings file saved before the option existed lacks the element. The initializer
+            // survives that, so an upgrade offers the choice rather than reading the absence as
+            // false - which is what it would be, were the default the zero value.
+            var options = Deserialize("""
+                <?xml version="1.0" encoding="utf-8"?>
+                <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                  <Enabled>true</Enabled>
+                  <Behaviour>Substitute</Behaviour>
+                </DownloadOptions>
+                """);
+
+            Assert.True(options.AllowOriginal);
+            Assert.False(RoundTrip(new DownloadOptions { AllowOriginal = false }).AllowOriginal);
+        }
+
+        [Fact]
         public static void AnEmptyTierElement_IsKeptEmpty()
         {
             // The other half of the same mechanism, and the one that makes "this server does not

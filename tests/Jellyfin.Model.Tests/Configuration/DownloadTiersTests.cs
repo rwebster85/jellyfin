@@ -353,6 +353,46 @@ namespace Jellyfin.Model.Tests.Configuration
             Assert.Null(options.DefaultTierId);
         }
 
+        [Theory]
+        [InlineData("original")]
+        [InlineData("Original")]
+        [InlineData(" original ")]
+        public static void IsOriginal_MatchesTheSentinelHoweverItArrives(string stored)
+            => Assert.True(DownloadTiers.IsOriginal(stored));
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData(DownloadTiers.SeedDefaultTierId)]
+        [InlineData("originals")]
+        public static void IsOriginal_IsFalseForAnythingElse(string? stored)
+            => Assert.False(DownloadTiers.IsOriginal(stored));
+
+        [Fact]
+        public static void PrepareForSave_RefusesATierUsingTheOriginalId()
+        {
+            // A tier with that id would be shadowed by the check that runs before resolution - the
+            // user who chose it would get the original instead - so it cannot be stored at all.
+            var options = new DownloadOptions { Tiers = [Tier("Original", "Large")] };
+
+            Assert.Throws<ArgumentException>(() => DownloadTiers.PrepareForSave(options));
+        }
+
+        [Fact]
+        public static void GetSearchOrder_TreatsTheOriginalAsNoTier()
+        {
+            // The optimised route still searches for a user who chose the original, since that route
+            // means "the optimised file" whatever they chose. The sentinel names no tier, so the
+            // default leads, the same as for a user who has not chosen.
+            var options = new DownloadOptions
+            {
+                Tiers = [Tier("a", "Large"), Tier("b", "Small")],
+                DefaultTierId = "b"
+            };
+
+            Assert.Equal(["Small", "Large"], DownloadTiers.GetSearchOrder(options, DownloadTiers.OriginalId));
+        }
+
         private static DownloadTier Tier(string id, string suffix, bool enabled = true)
             => new DownloadTier
             {

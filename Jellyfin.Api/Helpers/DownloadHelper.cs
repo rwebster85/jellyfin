@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
@@ -23,11 +26,13 @@ namespace Jellyfin.Api.Helpers
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
+    /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
         IDisplayPreferencesManager displayPreferencesManager,
         IMediaEncoder mediaEncoder,
+        IMediaSourceManager mediaSourceManager,
         IMemoryCache memoryCache)
     {
         /// <summary>
@@ -77,20 +82,77 @@ namespace Jellyfin.Api.Helpers
         /// Only the plain route asks this. The <c>Download/Optimised</c> pair means "the optimised
         /// file" whatever the setting says, so it goes on using <see cref="FindForUser"/>: the
         /// setting decides what the plain button does, not whether the optimised copy is reachable.
+        ///
+        /// A user who chose the original is the one exception, and it is checked here rather than
+        /// in <see cref="FindForUser"/> for the same reason: choosing the original opts out of
+        /// substitution, which is only something the plain route does.
         /// </remarks>
-        public string? FindForPlainDownload(string? path, Guid userId) =>
-            Options.Behaviour == DownloadBehaviour.Substitute ? FindForUser(path, userId) : null;
+        public string? FindForPlainDownload(string? path, Guid userId)
+        {
+            var options = Options;
+
+            return options.Behaviour == DownloadBehaviour.Substitute && !ChoseOriginal(options, userId)
+                ? FindForUser(path, userId)
+                : null;
+        }
 
         /// <summary>
         /// Probes a download version and returns what it actually contains, so the server can hand
         /// over a rendition and its own <see cref="MediaSourceInfo"/> rather than the source's.
         /// </summary>
-        /// <param name="itemId">The id of the item the download version belongs to.</param>
+        /// <param name="item">The item the download version belongs to.</param>
+        /// <param name="user">The requesting user, or <c>null</c> for an API key.</param>
         /// <param name="path">The path of the download version.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>The probed <see cref="MediaSourceInfo"/>, or <c>null</c> if the file has gone.</returns>
-        public Task<MediaSourceInfo?> ProbeAsync(Guid itemId, string path, CancellationToken cancellationToken)
-            => DownloadProbeHelper.ProbeAsync(mediaEncoder, memoryCache, itemId, path, cancellationToken);
+        /// <remarks>
+        /// The default audio and subtitle streams are chosen for this user, the way a playback
+        /// request chooses them, because a client that stores this description to play the file
+        /// offline has nothing else to go on - the Android app starts on the default audio stream
+        /// it is given. The probe itself is cached and shared between users, so the choice is made
+        /// on a copy.
+        /// </remarks>
+        public async Task<MediaSourceInfo?> DescribeAsync(BaseItem item, User? user, string path, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+
+            var probed = await DownloadProbeHelper.ProbeAsync(mediaEncoder, memoryCache, item.Id, path, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (probed is null || user is null)
+            {
+                return probed;
+            }
+
+            // The same clone MediaInfoHelper makes before it sets anything on a shared source.
+            var source = JsonSerializer.Deserialize<MediaSourceInfo>(JsonSerializer.SerializeToUtf8Bytes(probed)) ?? probed;
+            mediaSourceManager.SetDefaultAudioAndSubtitleStreamIndices(item, source, user);
+
+            return source;
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether users are offered the original file as a choice alongside
+        /// the tiers.
+        /// </summary>
+        /// <returns><c>true</c> when the original may be chosen.</returns>
+        /// <remarks>
+        /// Only under <see cref="DownloadBehaviour.Substitute"/>: see
+        /// <see cref="DownloadOptions.AllowOriginal"/> for why the choice means nothing otherwise.
+        /// </remarks>
+        public bool OffersOriginal() => OffersOriginal(Options);
+
+        /// <summary>
+        /// Gets a value indicating whether a user has chosen the original file and may still have it.
+        /// </summary>
+        /// <param name="userId">The user id.</param>
+        /// <returns><c>true</c> when this user's downloads are not substituted.</returns>
+        /// <remarks>
+        /// A choice of the original that the administrator has since stopped offering behaves exactly
+        /// like no choice at all, the same as a tier that has been turned off: the stored value is
+        /// kept, so offering it again brings it back.
+        /// </remarks>
+        public bool ChoseOriginal(Guid userId) => ChoseOriginal(Options, userId);
 
         /// <summary>
         /// Gets the tiers the admin has enabled, in the order they arranged them.
@@ -153,5 +215,12 @@ namespace Jellyfin.Api.Helpers
         /// </remarks>
         public DownloadTier? ResolveEnabledTier(string? stored)
             => DownloadTiers.Find(GetEnabledTiers(), stored);
+
+        private static bool OffersOriginal(DownloadOptions options)
+            => options.Enabled && options.Behaviour == DownloadBehaviour.Substitute && options.AllowOriginal;
+
+        private bool ChoseOriginal(DownloadOptions options, Guid userId)
+            => OffersOriginal(options)
+                && DownloadTiers.IsOriginal(DownloadPreferences.GetTier(displayPreferencesManager, userId));
     }
 }

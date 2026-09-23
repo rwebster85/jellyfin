@@ -4,6 +4,7 @@ using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
 using Jellyfin.Api.Models.DownloadDtos;
 using Jellyfin.Extensions;
+using MediaBrowser.Model.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -29,6 +30,8 @@ namespace Jellyfin.Api.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<DownloadTierOptionsDto> GetDownloadTier()
         {
+            var userId = User.GetUserId();
+
             return new DownloadTierOptionsDto
             {
                 Tiers = [.. downloadHelper.GetEnabledTiers().Select(tier => new DownloadTierInfoDto
@@ -38,7 +41,10 @@ namespace Jellyfin.Api.Controllers
                     Description = tier.Description
                 })],
                 DefaultTierId = downloadHelper.GetDefaultTier()?.Id,
-                TierId = downloadHelper.GetUserTier(User.GetUserId())?.Id
+                OriginalAvailable = downloadHelper.OffersOriginal(),
+                TierId = downloadHelper.ChoseOriginal(userId)
+                    ? DownloadTiers.OriginalId
+                    : downloadHelper.GetUserTier(userId)?.Id
             };
         }
 
@@ -47,7 +53,8 @@ namespace Jellyfin.Api.Controllers
         /// </summary>
         /// <param name="downloadTierDto">The tier to use.</param>
         /// <response code="204">Download tier updated.</response>
-        /// <response code="400">The tier is not one the admin has enabled.</response>
+        /// <response code="400">The tier is not one the admin has enabled, or the original file was
+        /// chosen and is not offered.</response>
         /// <response code="401">User context missing.</response>
         /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
         [HttpPost("Tier")]
@@ -69,7 +76,18 @@ namespace Jellyfin.Api.Controllers
 
             var tierId = downloadTierDto.TierId;
 
-            if (!string.IsNullOrEmpty(tierId))
+            // Checked before the tiers are searched: the original is a choice, not a tier, so no
+            // tier can ever match it.
+            if (DownloadTiers.IsOriginal(tierId))
+            {
+                if (!downloadHelper.OffersOriginal())
+                {
+                    return BadRequest("The original file is not offered on this server");
+                }
+
+                tierId = DownloadTiers.OriginalId;
+            }
+            else if (!string.IsNullOrEmpty(tierId))
             {
                 // Match against the enabled tiers rather than trusting the body, and store the id
                 // the server holds rather than the spelling that arrived.

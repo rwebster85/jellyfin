@@ -39,5 +39,13 @@ namespace Jellyfin.Model.Tests.Configuration
             // has always meant.
             Assert.Equal(DownloadBehaviour.SeparateAction, (DownloadBehaviour)0);
         }
+
+        [Fact]
+        public static void AllowOriginal_IsOnOutOfTheBox()
+        {
+            // A user only ever gets the original by choosing it - it is never a default - so
+            // offering the choice is safe to start with. Turning it off is the admin's decision.
+            Assert.True(new DownloadOptions().AllowOriginal);
+        }
     }
 }
