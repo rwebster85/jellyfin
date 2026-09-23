@@ -58,7 +58,6 @@ public class LibraryController : BaseJellyfinApiController
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ILogger<LibraryController> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
-    private readonly DownloadHelper _downloadHelper;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryController"/> class.
@@ -74,7 +73,6 @@ public class LibraryController : BaseJellyfinApiController
     /// <param name="libraryMonitor">Instance of the <see cref="ILibraryMonitor"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{LibraryController}"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
-    /// <param name="downloadHelper">Instance of the <see cref="DownloadHelper"/>.</param>
     public LibraryController(
         IProviderManager providerManager,
         ISimilarItemsManager similarItemsManager,
@@ -86,8 +84,7 @@ public class LibraryController : BaseJellyfinApiController
         ILocalizationManager localization,
         ILibraryMonitor libraryMonitor,
         ILogger<LibraryController> logger,
-        IServerConfigurationManager serverConfigurationManager,
-        DownloadHelper downloadHelper)
+        IServerConfigurationManager serverConfigurationManager)
     {
         _providerManager = providerManager;
         _similarItemsManager = similarItemsManager;
@@ -100,7 +97,6 @@ public class LibraryController : BaseJellyfinApiController
         _libraryMonitor = libraryMonitor;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
-        _downloadHelper = downloadHelper;
     }
 
     /// <summary>
@@ -677,7 +673,11 @@ public class LibraryController : BaseJellyfinApiController
     [ProducesFile("video/*", "audio/*")]
     public async Task<ActionResult> GetDownload([FromRoute, Required] Guid itemId)
     {
-        var (item, user) = GetDownloadableItem(itemId);
+        var userId = User.GetUserId();
+        var user = userId.IsEmpty()
+            ? null
+            : _userManager.GetUserById(userId);
+        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
             return NotFound();
@@ -685,45 +685,17 @@ public class LibraryController : BaseJellyfinApiController
 
         if (user is not null)
         {
-            await LogDownloadAsync(item, user).ConfigureAwait(false);
+            if (!item.CanDownload(user))
+            {
+                throw new ArgumentException("Item does not support downloading");
+            }
         }
-
-        var downloadVersion = FindSubstituteVersion(item, user);
-        if (downloadVersion is not null)
+        else
         {
-            _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
-        }
-
-        return ServeDownload(item, downloadVersion ?? item.Path);
-    }
-
-    /// <summary>
-    /// Downloads the optimised version of an item's media.
-    /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <response code="200">Media downloaded.</response>
-    /// <response code="404">Item not found, or it has no optimised version.</response>
-    /// <returns>A <see cref="FileResult"/> containing the optimised media stream.</returns>
-    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
-    [HttpGet("Items/{itemId}/Download/Optimised")]
-    [Authorize(Policy = Policies.Download)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesFile("video/*", "audio/*")]
-    public async Task<ActionResult> GetOptimisedDownload([FromRoute, Required] Guid itemId)
-    {
-        var (item, user) = GetDownloadableItem(itemId);
-        if (item is null)
-        {
-            return NotFound();
-        }
-
-        // No fall-through to item.Path here, unlike GetDownload: this route means "the optimised file",
-        // so no optimised file means no download, and the client decides what to do about it.
-        var downloadVersion = FindDownloadVersion(item, user);
-        if (downloadVersion is null)
-        {
-            return NotFound();
+            if (!item.CanDownload())
+            {
+                throw new ArgumentException("Item does not support downloading");
+            }
         }
 
         if (user is not null)
@@ -731,101 +703,21 @@ public class LibraryController : BaseJellyfinApiController
             await LogDownloadAsync(item, user).ConfigureAwait(false);
         }
 
-        _logger.LogInformation("Serving download version {DownloadVersion} for {Path}", downloadVersion, item.Path);
+        // Quotes are valid in linux. They'll possibly cause issues here.
+        var filename = Path.GetFileName(item.Path)?.Replace("\"", string.Empty, StringComparison.Ordinal);
 
-        return ServeDownload(item, downloadVersion);
-    }
-
-    /// <summary>
-    /// Gets the media info of an item's optimised version, describing the file that
-    /// <c>Items/{itemId}/Download/Optimised</c> would serve rather than the item's own file.
-    /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <response code="200">Media info returned.</response>
-    /// <response code="404">Item not found, or it has no optimised version.</response>
-    /// <returns>The <see cref="MediaSourceInfo"/> of the optimised version.</returns>
-    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
-    [HttpGet("Items/{itemId}/Download/Optimised/MediaInfo")]
-    [Authorize(Policy = Policies.Download)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<MediaSourceInfo>> GetOptimisedDownloadMediaInfo(
-        [FromRoute, Required] Guid itemId,
-        CancellationToken cancellationToken)
-    {
-        // The user matters here as much as on the bytes route: this has to describe the file that
-        // route would serve them, which is their own tier.
-        var (item, user) = GetDownloadableItem(itemId);
-        if (item is null)
+        var filePath = item.Path;
+        if (item.IsFileProtocol)
         {
-            return NotFound();
+            // PhysicalFile does not work well with symlinks at the moment.
+            var resolved = FileSystemHelper.ResolveLinkTarget(filePath, returnFinalTarget: true);
+            if (resolved is not null && resolved.Exists)
+            {
+                filePath = resolved.FullName;
+            }
         }
 
-        var downloadVersion = FindDownloadVersion(item, user);
-        if (downloadVersion is null)
-        {
-            return NotFound();
-        }
-
-        var mediaSource = await _downloadHelper.DescribeAsync(item, user, downloadVersion, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (mediaSource is null)
-        {
-            return NotFound();
-        }
-
-        return mediaSource;
-    }
-
-    /// <summary>
-    /// Gets the media info of the optimised version <c>Items/{itemId}/Download</c> would serve in
-    /// place of the item's own file, if it would serve one at all.
-    /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <response code="200">Media info of the file that would be served instead.</response>
-    /// <response code="204">The item's own file would be served, so its own media info describes it.</response>
-    /// <response code="404">Item not found.</response>
-    /// <returns>The <see cref="MediaSourceInfo"/> of the substituted version, or no content.</returns>
-    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
-    /// <remarks>
-    /// For a client that stores a description of what it downloaded. Under substitution the plain
-    /// route can hand over a different file from the one the item describes - another container,
-    /// other tracks - and nothing in the response says so. No content, rather than 404, when there
-    /// is no substitute, because the item's own file is a real answer here, not a missing one.
-    /// </remarks>
-    [HttpGet("Items/{itemId}/Download/MediaInfo")]
-    [Authorize(Policy = Policies.Download)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<MediaSourceInfo>> GetDownloadMediaInfo(
-        [FromRoute, Required] Guid itemId,
-        CancellationToken cancellationToken)
-    {
-        var (item, user) = GetDownloadableItem(itemId);
-        if (item is null)
-        {
-            return NotFound();
-        }
-
-        var downloadVersion = FindSubstituteVersion(item, user);
-        if (downloadVersion is null)
-        {
-            return NoContent();
-        }
-
-        var mediaSource = await _downloadHelper.DescribeAsync(item, user, downloadVersion, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (mediaSource is null)
-        {
-            return NoContent();
-        }
-
-        return mediaSource;
+        return PhysicalFile(filePath, MimeTypes.GetMimeType(filePath), filename, true);
     }
 
     /// <summary>
@@ -1092,77 +984,6 @@ public class LibraryController : BaseJellyfinApiController
         result.TypeOptions = typeOptions.ToArray();
 
         return result;
-    }
-
-    /// <summary>
-    /// Resolves an item for download, checking that this user may download it.
-    /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <returns>The item and the requesting user, with a null item when there isn't one.</returns>
-    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
-    private (BaseItem? Item, User? User) GetDownloadableItem(Guid itemId)
-    {
-        var userId = User.GetUserId();
-        var user = userId.IsEmpty()
-            ? null
-            : _userManager.GetUserById(userId);
-        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
-        if (item is null)
-        {
-            return (null, user);
-        }
-
-        var canDownload = user is not null ? item.CanDownload(user) : item.CanDownload();
-        if (!canDownload)
-        {
-            throw new ArgumentException("Item does not support downloading");
-        }
-
-        return (item, user);
-    }
-
-    /// <summary>
-    /// Finds the download version of an item, if the configured locations hold one, at the quality
-    /// tier this user chose - falling back to the other enabled tiers when that one has no file.
-    /// </summary>
-    /// <param name="item">The item.</param>
-    /// <param name="user">The requesting user, or <c>null</c> for an API key.</param>
-    /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
-    private string? FindDownloadVersion(BaseItem item, User? user)
-        => _downloadHelper.FindForUser(item.Path, user?.Id ?? Guid.Empty);
-
-    /// <summary>
-    /// Finds the download version the plain download route should serve in place of the item's own
-    /// file, which is nothing when the admin has chosen to offer the optimised copy as a separate
-    /// action instead.
-    /// </summary>
-    /// <param name="item">The item.</param>
-    /// <param name="user">The requesting user, or <c>null</c> for an API key.</param>
-    /// <returns>The path to substitute, or <c>null</c> to serve the item's own file.</returns>
-    private string? FindSubstituteVersion(BaseItem item, User? user)
-        => _downloadHelper.FindForPlainDownload(item.Path, user?.Id ?? Guid.Empty);
-
-    /// <summary>
-    /// Serves a file as a download, named after itself.
-    /// </summary>
-    /// <param name="item">The item the file belongs to.</param>
-    /// <param name="filePath">The path of the file to serve.</param>
-    /// <returns>A <see cref="FileResult"/> containing the media stream.</returns>
-    private ActionResult ServeDownload(BaseItem item, string filePath)
-    {
-        var filename = Path.GetFileName(filePath)?.Replace("\"", string.Empty, StringComparison.Ordinal);
-
-        if (item.IsFileProtocol)
-        {
-            // Resolve symlinks
-            var resolved = FileSystemHelper.ResolveLinkTarget(filePath, returnFinalTarget: true);
-            if (resolved is not null && resolved.Exists)
-            {
-                filePath = resolved.FullName;
-            }
-        }
-
-        return PhysicalFile(filePath, MimeTypes.GetMimeType(filePath), filename, true);
     }
 
     private BaseItem? TranslateParentItem(BaseItem item, User user)
