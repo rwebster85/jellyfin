@@ -13,13 +13,6 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         [Fact]
-        public static void Enabled_IsTheZeroValue()
-        {
-            // A settings file with no <Enabled> element reads back as false: the feature stays off.
-            Assert.False(default(bool));
-        }
-
-        [Fact]
         public static void Behaviour_SeparatesTheActionsOutOfTheBox()
         {
             // Turning the feature on adds an action rather than changing the Download button.

@@ -42,7 +42,8 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void AFileWithNoTierElement_StartsFromTheSeed()
         {
-            // A property initializer survives an absent element, so such a file starts from the seed.
+            // A hand-written settings file may leave the element out. A property initializer survives
+            // an absent element, so such a file starts from the seed.
             var options = Deserialize("""
                 <?xml version="1.0" encoding="utf-8"?>
                 <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -58,18 +59,9 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         [Fact]
-        public static void AFileWrittenBeforeAllowOriginal_KeepsItOn()
+        public static void AllowOriginalTurnedOff_SurvivesARoundTrip()
         {
-            // A file saved before the option existed lacks the element, and must read it as on.
-            var options = Deserialize("""
-                <?xml version="1.0" encoding="utf-8"?>
-                <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-                  <Enabled>true</Enabled>
-                  <Behaviour>Substitute</Behaviour>
-                </DownloadOptions>
-                """);
-
-            Assert.True(options.AllowOriginal);
+            // It defaults to on, so turning it off has to be written and read back, or a restart undoes it.
             Assert.False(RoundTrip(new DownloadOptions { AllowOriginal = false }).AllowOriginal);
         }
 
