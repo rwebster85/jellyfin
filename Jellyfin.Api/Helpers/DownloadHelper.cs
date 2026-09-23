@@ -13,6 +13,7 @@ using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Api.Helpers
 {
@@ -28,12 +29,14 @@ namespace Jellyfin.Api.Helpers
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
+    /// <param name="logger">Instance of the <see cref="ILogger{DownloadHelper}"/> interface.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
         IDisplayPreferencesManager displayPreferencesManager,
         IMediaEncoder mediaEncoder,
         IMediaSourceManager mediaSourceManager,
-        IMemoryCache memoryCache)
+        IMemoryCache memoryCache,
+        ILogger<DownloadHelper> logger)
     {
         /// <summary>
         /// Gets the download options the admin has configured.
@@ -66,7 +69,8 @@ namespace Jellyfin.Api.Helpers
                 ? DownloadLocator.FindDownloadVersion(
                     options,
                     path,
-                    DownloadPreferences.GetTier(displayPreferencesManager, userId))
+                    DownloadPreferences.GetTier(displayPreferencesManager, userId),
+                    logger)
                 : null;
         }
 
