@@ -12,8 +12,8 @@ using Microsoft.Extensions.Caching.Memory;
 namespace Jellyfin.Api.Helpers
 {
     /// <summary>
-    /// Describes a download version by probing it, so the server can hand over a rendition and its
-    /// own <see cref="MediaSourceInfo"/> rather than the source's.
+    /// Describes a download version by reading it with ffprobe ("probing" it), so the server can
+    /// hand over an optimised copy with its own <see cref="MediaSourceInfo"/> rather than the source's.
     /// </summary>
     public static class DownloadProbeHelper
     {

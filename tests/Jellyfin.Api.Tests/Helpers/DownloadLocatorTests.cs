@@ -53,10 +53,8 @@ namespace Jellyfin.Api.Tests.Helpers
         {
             var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
 
-            // Enabling a tier decides what a user may choose, not which files may ever be served.
-            // The only alternative here is the item's own file, which is far larger than the
-            // rendition being refused - so treating the tick as a prohibition achieves the opposite
-            // of what unticking it was for.
+            // Enabling a tier decides what a user may choose, not what may be served: the only
+            // alternative is the item's own, larger, file.
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
                 FindWithTiers(["High"], null, location));
@@ -154,7 +152,7 @@ namespace Jellyfin.Api.Tests.Helpers
         [Fact]
         public void FindDownloadVersion_FallsBackToTheOtherTierWhenTheChosenOneHasNoFile()
         {
-            // The live case: every portable copy is High, and a user has asked for Standard.
+            // Every copy is High, and the user asked for Standard.
             var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - High.mkv");
 
             Assert.Equal(
@@ -167,9 +165,8 @@ namespace Jellyfin.Api.Tests.Helpers
         {
             var location = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
 
-            // The user's stored choice is stale - the admin has since turned Standard off - so it
-            // stops counting as a preference. The file is still served, because the alternative is
-            // the item's own file rather than nothing.
+            // The admin has since turned Standard off, so the stored choice stops counting - but
+            // the file is still served, since the alternative is the item's own file.
             Assert.Equal(
                 Path.Combine(location, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
                 FindWithTiers(["High"], "id-Standard", location));
@@ -178,7 +175,7 @@ namespace Jellyfin.Api.Tests.Helpers
         [Fact]
         public void FindDownloadVersion_PrefersTheChosenTierOverTheLocationOrder()
         {
-            // Quality-major: the user's tier wins wherever it sits, even in a later location.
+            // The user's tier wins wherever it sits, even in a later location.
             var first = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - High.mkv");
             var second = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
 
@@ -190,8 +187,8 @@ namespace Jellyfin.Api.Tests.Helpers
         [Fact]
         public void FindDownloadVersion_KeepsEachTiersFallbackInsideItsOwnTier()
         {
-            // One file per tier, neither named after the source, so both are found by the
-            // single-file fallback - which must not reach across the tier line.
+            // One file per tier, neither named after the source. The "only file with this suffix"
+            // rule finds each within its own tier, and must not pick the other tier's file.
             var location = CreateLocation(
                 "Avengers - Infinity War (2018) - IMAX DV WEB-DL 2160p - High.mkv",
                 "Avengers - Infinity War (2018) - IMAX DV WEB-DL 2160p - Standard.mkv");

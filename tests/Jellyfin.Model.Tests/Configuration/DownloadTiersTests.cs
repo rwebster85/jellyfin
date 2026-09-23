@@ -10,9 +10,8 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetTiers_StartsFromWorkingExamples()
         {
-            // A server with no settings file yet gets a working pair, so dropping a rendition in
-            // works without configuring anything. Placeholders would match nothing,
-            // which is a silent no-op rather than a starting point.
+            // A server with no settings file gets a working pair, so an optimised copy dropped in works
+            // without configuring anything.
             var tiers = DownloadTiers.GetTiers(new DownloadOptions());
 
             Assert.Equal(["High", "Standard"], tiers.Select(tier => tier.Suffix));
@@ -46,8 +45,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void CreateSeedTiers_HandsOutTheSameIdsEveryTime()
         {
-            // A server that has not saved its settings builds the seed on every read. Fresh ids
-            // each time would move what a user's stored choice points at between two requests.
+            // The seed is rebuilt on every read, so its ids must not change between reads.
             Assert.Equal(
                 DownloadTiers.CreateSeedTiers().Select(tier => tier.Id),
                 DownloadTiers.CreateSeedTiers().Select(tier => tier.Id));
@@ -78,10 +76,8 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetTiers_IsUnaffectedByTheFeatureSwitch()
         {
-            // DownloadTiers answers "what tiers does this configuration describe", which is a
-            // different question from "may anyone have one". The switch is honoured by the service
-            // layer (DownloadHelper), so that the dashboard can still show and edit the tier table
-            // while the feature is off.
+            // The Enabled switch is DownloadHelper's concern, so the dashboard can still edit the
+            // tiers while the feature is off.
             var options = new DownloadOptions { Enabled = false, Tiers = [Tier("a", "Max")] };
 
             Assert.Equal(["Max"], DownloadTiers.GetTiers(options).Select(tier => tier.Suffix));
@@ -133,8 +129,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetDefault_IsTheTierTheAdminNamed()
         {
-            // Not the first row. The default is an explicit choice now, so reordering the table
-            // does not reassign every user who never picked one.
+            // Not the first row: reordering the table must not reassign users who never chose.
             var options = new DownloadOptions
             {
                 Tiers = [Tier("a", "Large"), Tier("b", "Small")],
@@ -175,8 +170,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetSearchOrder_PutsTheDefaultFirstForAUserWhoHasNotChosen()
         {
-            // The default no longer has to sit at the top of the table, so a user who has not
-            // chosen has to be pointed at it rather than at the first row.
+            // The default can sit anywhere in the table, and still leads for a user who has not chosen.
             var options = new DownloadOptions
             {
                 Tiers = [Tier("a", "Large"), Tier("b", "Small")],
@@ -189,8 +183,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetSearchOrder_KeepsAChoiceWhenTheAdminRenamesTheSuffix()
         {
-            // The whole point of the id: an admin renaming a tier - because the files were renamed,
-            // or the label was wrong - does not silently drop everyone who chose it.
+            // Renaming a tier's suffix keeps everyone who chose it.
             var options = new DownloadOptions { Tiers = [Tier("a", "Large"), Tier("b", "Tiny")] };
 
             Assert.Equal(["Tiny", "Large"], DownloadTiers.GetSearchOrder(options, "b"));
@@ -199,9 +192,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetSearchOrder_IgnoresAChoiceThatNamesASuffixRatherThanAnId()
         {
-            // A suffix is editable, so two tiers can swap suffixes over a server's life. Resolving
-            // a stored choice by name would then hand the user a different tier than the one they
-            // saved, which is worse than falling back to the default.
+            // Suffixes are editable, so a choice matched by name could come to mean another tier.
             var options = new DownloadOptions { Tiers = [Tier("a", "High"), Tier("b", "Standard")] };
 
             Assert.Equal(["High", "Standard"], DownloadTiers.GetSearchOrder(options, "Standard"));
@@ -210,9 +201,8 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetSearchOrder_DemotesATierTheAdminHasTurnedOff()
         {
-            // The user chose Small, then the admin disabled it. Their choice stops counting, so the
-            // default leads - but Small is searched last rather than dropped, because the only
-            // thing after it is the item's own file, which is larger than any rendition.
+            // The user chose Small, then the admin disabled it: the default leads, and Small is
+            // searched last rather than dropped.
             var options = new DownloadOptions
             {
                 Tiers = [Tier("a", "Large"), Tier("b", "Small", enabled: false)]
@@ -304,9 +294,8 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void PrepareForSave_ClearsADefaultThatNamesNoTier()
         {
-            // What a caller sending its own tiers and no default looks like: DefaultTierId starts
-            // on the seed's, so it arrives carrying an id that means nothing to them. Refusing it
-            // would turn "I don't mind which" into a 400.
+            // A caller sending its own tiers and no default still carries the seed's id; treat it as
+            // unset rather than refuse it.
             var options = new DownloadOptions { Tiers = [Tier("a", "Max")] };
 
             DownloadTiers.PrepareForSave(options);
@@ -318,8 +307,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void PrepareForSave_RefusesADefaultThatUsersCannotBeGiven()
         {
-            // Pointing the default at a disabled tier behaves exactly like not setting it at all,
-            // which is the kind of silent no-op worth refusing at the moment it is written.
+            // A deliberate default that would silently do nothing is refused.
             var options = new DownloadOptions
             {
                 Tiers = [Tier("a", "Large"), Tier("b", "Small", enabled: false)],
@@ -371,8 +359,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void PrepareForSave_RefusesATierUsingTheOriginalId()
         {
-            // A tier with that id would be shadowed by the check that runs before resolution - the
-            // user who chose it would get the original instead - so it cannot be stored at all.
+            // A user who chose a tier with that id would get the original file instead.
             var options = new DownloadOptions { Tiers = [Tier("Original", "Large")] };
 
             Assert.Throws<ArgumentException>(() => DownloadTiers.PrepareForSave(options));
@@ -381,9 +368,8 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetSearchOrder_TreatsTheOriginalAsNoTier()
         {
-            // The optimised route still searches for a user who chose the original, since that route
-            // means "the optimised file" whatever they chose. The sentinel names no tier, so the
-            // default leads, the same as for a user who has not chosen.
+            // The optimised routes still search for a user who chose the original: the stored value
+            // "original" matches no tier, so the default leads.
             var options = new DownloadOptions
             {
                 Tiers = [Tier("a", "Large"), Tier("b", "Small")],

@@ -25,13 +25,8 @@ namespace MediaBrowser.Controller.Library
 
         /// <inheritdoc />
         /// <remarks>
-        /// Throwing an <see cref="System.ArgumentException"/> here is what turns a tier list that
-        /// cannot be used into a 400 on the configuration endpoint, rather than a stored file whose
-        /// behaviour nobody can explain later. The dashboard checks the same things before it
-        /// submits, so what reaches this is an API caller or a hand-edited file.
-        ///
-        /// It also fills in any missing tier id, which works because the object handed over is the
-        /// one about to be cached and written.
+        /// An <see cref="System.ArgumentException"/> here becomes a 400 on the configuration
+        /// endpoint. Also assigns missing tier ids, on the object about to be written.
         /// </remarks>
         public void Validate(object oldConfig, object newConfig)
             => DownloadTiers.PrepareForSave((DownloadOptions)newConfig);

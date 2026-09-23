@@ -145,7 +145,7 @@ namespace Jellyfin.Api.Controllers
                 return NotFound();
             }
 
-            // No fall-through to the item's own file: this route means the optimised one.
+            // Never falls back to the item's own file: this route means the optimised one.
             var downloadVersion = downloadHelper.FindForUser(item.Path, user?.Id ?? Guid.Empty);
             if (downloadVersion is null)
             {

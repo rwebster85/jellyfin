@@ -9,10 +9,9 @@ namespace Jellyfin.Api.Helpers
     /// Reads and writes a user's own download tier.
     /// </summary>
     /// <remarks>
-    /// Stored through <see cref="IDisplayPreferencesManager"/>'s custom item preferences, which is the
-    /// server's generic per-user key/value store and needs no new table. The client name is the
-    /// feature's, not a real client's, so the choice belongs to the user rather than to whichever app
-    /// they happened to set it in - the server reads it the same way for every client.
+    /// Kept in <see cref="IDisplayPreferencesManager"/>'s custom item preferences, the server's
+    /// per-user key/value store, under the feature's name rather than a client's - so one choice
+    /// applies on every client.
     /// </remarks>
     public static class DownloadPreferences
     {

@@ -5,12 +5,12 @@ using System.Linq;
 namespace MediaBrowser.Model.Configuration
 {
     /// <summary>
-    /// Reads the quality tiers out of the download options: which ones exist, which a user may
-    /// choose, which one they get if they have not chosen, and the order they are searched in.
+    /// Reads the tiers out of the download options: which exist, which a user may choose, the
+    /// default, and the search order.
     /// </summary>
     /// <remarks>
-    /// Every consumer goes through here rather than reading <see cref="DownloadOptions.Tiers"/>
-    /// directly, because a stored tier list has to be tidied before it can be trusted.
+    /// Consumers go through here rather than reading <see cref="DownloadOptions.Tiers"/> directly,
+    /// because a hand-edited tier list has to be tidied before it can be trusted.
     /// </remarks>
     public static class DownloadTiers
     {
@@ -19,30 +19,27 @@ namespace MediaBrowser.Model.Configuration
         private const string StandardSuffix = "Standard";
 
         /// <summary>
-        /// The seed's ids are fixed rather than generated, so a server that has not saved its
-        /// settings yet hands out the same ids on every read. A fresh id per read would move what a
-        /// user's stored choice points at between one request and the next.
+        /// The seed's ids are fixed, not generated, so an unsaved server hands out the same ids on
+        /// every read and a user's stored choice keeps pointing at the same tier.
         /// </summary>
         private const string HighId = "8d3a6f1e7c4b4a2d9e5f1b0c2d3e4f50";
 
         private const string StandardId = "8d3a6f1e7c4b4a2d9e5f1b0c2d3e4f51";
 
         /// <summary>
-        /// The tier the seed nominates as its default. Set outright rather than left to the
-        /// "first enabled tier" fall-back, so that the dashboard's Default column has a button
-        /// selected the first time an administrator opens it.
+        /// The seed's default tier, named outright so the dashboard's Default column has a
+        /// selection the first time it is opened.
         /// </summary>
         public const string SeedDefaultTierId = HighId;
 
         /// <summary>
-        /// The stored preference value meaning "give me the original file", which is a choice a user
-        /// can make but not a tier (see <see cref="DownloadOptions.AllowOriginal"/>).
+        /// The stored choice meaning "the original file" - a choice, not a tier
+        /// (see <see cref="DownloadOptions.AllowOriginal"/>).
         /// </summary>
         /// <remarks>
-        /// Stored where a tier id goes, so it has to be something no tier can be: every generated id
-        /// is 32 hex characters, and <see cref="PrepareForSave"/> refuses it as a hand-written one.
-        /// It is checked before a stored value is resolved against the tiers, never by
-        /// <see cref="Find"/>, which only ever answers with a tier.
+        /// Stored where a tier id goes, so no tier may use it: <see cref="PrepareForSave"/> refuses
+        /// it. Check it with <see cref="IsOriginal"/> before resolving a stored value against the
+        /// tiers.
         /// </remarks>
         public const string OriginalId = "original";
 
@@ -51,11 +48,10 @@ namespace MediaBrowser.Model.Configuration
         private const string StandardName = "720p";
 
         /// <summary>
-        /// Creates the tiers a server starts from - working examples rather than placeholders, so
-        /// that dropping a rendition into a download location works without configuring anything
-        /// first.
+        /// Creates the tiers a server starts from: working examples, so a download folder works
+        /// before anything is configured.
         /// </summary>
-        /// <returns>A fresh seed, which the caller owns.</returns>
+        /// <returns>A new array on every call, so changing it affects nothing else.</returns>
         public static DownloadTier[] CreateSeedTiers() =>
         [
             new DownloadTier { Id = HighId, Suffix = HighSuffix, Name = HighName },
@@ -63,19 +59,14 @@ namespace MediaBrowser.Model.Configuration
         ];
 
         /// <summary>
-        /// Gets the tiers this server has, in the order the administrator arranged them.
+        /// Gets the tiers this server has, in the administrator's order.
         /// </summary>
         /// <param name="options">The download options.</param>
         /// <returns>The tiers, tidied and in order. Empty when the administrator has defined none.</returns>
         /// <remarks>
-        /// A suffix is trimmed, a tier without one is dropped, and a suffix already used is dropped
-        /// rather than shadowing the first. The write path rejects all three (see
-        /// <see cref="PrepareForSave"/>), so this only ever catches a hand-edited file - but an
-        /// empty suffix would match nearly every file name, which is worth being certain about
-        /// rather than trusting.
-        ///
-        /// An empty result means what it says: this server has no tiers, and only a download folder
-        /// holding one plainly-named video is served.
+        /// Trims each suffix and drops a tier with no suffix or a duplicate one. Saving already
+        /// refuses both; this guards a hand-edited file, where an empty suffix would match almost
+        /// every file name.
         /// </remarks>
         public static IReadOnlyList<DownloadTier> GetTiers(DownloadOptions options)
         {
@@ -116,15 +107,11 @@ namespace MediaBrowser.Model.Configuration
             => [.. GetTiers(options).Where(tier => tier.Enabled)];
 
         /// <summary>
-        /// Gets the tier a user who has not chosen one gets.
+        /// Gets the tier a user who has not chosen one gets: <see cref="DownloadOptions.DefaultTierId"/>,
+        /// or the first enabled tier if that names none.
         /// </summary>
         /// <param name="options">The download options.</param>
         /// <returns>The default tier, or <c>null</c> if no tier is enabled.</returns>
-        /// <remarks>
-        /// <see cref="DownloadOptions.DefaultTierId"/> names it explicitly. A default naming no
-        /// enabled tier - because it was disabled or deleted outside the dashboard - falls back to
-        /// the first enabled tier rather than leaving users with nothing.
-        /// </remarks>
         public static DownloadTier? GetDefault(DownloadOptions options)
         {
             ArgumentNullException.ThrowIfNull(options);
@@ -133,15 +120,14 @@ namespace MediaBrowser.Model.Configuration
         }
 
         /// <summary>
-        /// Finds the tier a stored choice refers to, whether or not it is still enabled.
+        /// Finds the tier a stored choice refers to, by id alone.
         /// </summary>
         /// <param name="tiers">The tiers to search.</param>
         /// <param name="stored">A tier id.</param>
         /// <returns>The tier, or <c>null</c> when nothing matches.</returns>
         /// <remarks>
-        /// Matched on the id alone, never on the suffix. A suffix is editable, so two tiers can
-        /// swap suffixes over a server's life - a stored value that resolved by name would then
-        /// mean a different tier than the one it was saved against.
+        /// Never by suffix: suffixes are editable, so a choice matched by name could come to mean a
+        /// different tier from the one it was saved against.
         /// </remarks>
         public static DownloadTier? Find(IReadOnlyList<DownloadTier> tiers, string? stored)
         {
@@ -158,29 +144,22 @@ namespace MediaBrowser.Model.Configuration
         }
 
         /// <summary>
-        /// Gets the tier suffixes to look for, in the order they should be tried.
+        /// Gets the tier suffixes to look for, in the order they should be tried: the user's tier or
+        /// else the default, then the other enabled tiers, then the disabled ones.
         /// </summary>
         /// <param name="options">The download options.</param>
         /// <param name="preferred">The user's stored choice, or <c>null</c>.</param>
         /// <returns>The suffixes to try, in order. Empty when no tier is defined at all.</returns>
         /// <remarks>
-        /// The user's own tier leads when it is still one they may have; otherwise the server
-        /// default does. That second part matters more than it used to: the default is now an
-        /// explicit setting rather than whichever tier happens to sit at the top, so a user who has
-        /// not chosen has to be pointed at it rather than at the first row.
-        ///
-        /// A tier the administrator has not enabled is still searched, last. Enabling a tier decides
-        /// what a user may <em>choose</em>; it is not a rule about which files may ever be served,
-        /// because the alternative to serving a rendition of an unenabled tier is serving the item's
-        /// own file, which is larger than any rendition.
+        /// Disabled tiers are still searched: enabling decides what a user may choose, not what may
+        /// be served, and the alternative is the item's own, larger, file.
         /// </remarks>
         public static IReadOnlyList<string> GetSearchOrder(DownloadOptions options, string? preferred)
         {
             var tiers = GetTiers(options);
             var enabled = tiers.Where(tier => tier.Enabled).ToList();
 
-            // Null when the user has not chosen, or chose a tier the administrator has since turned
-            // off. Either way it stops being a preference and the server default leads.
+            // A choice the administrator has since disabled no longer counts, so the default leads.
             var chosen = Find(enabled, preferred) ?? ResolveDefault(enabled, options.DefaultTierId);
 
             var order = new List<string>(tiers.Count);
@@ -205,20 +184,11 @@ namespace MediaBrowser.Model.Configuration
         /// Gives every tier an id if it has none, and throws if the list cannot be used.
         /// </summary>
         /// <param name="options">The download options about to be stored.</param>
-        /// <exception cref="ArgumentException">A tier has no suffix, two share a suffix or an id, or
-        /// the default names no enabled tier.</exception>
+        /// <exception cref="ArgumentException">A tier has no suffix, two share a suffix or an id, a
+        /// tier uses <see cref="OriginalId"/>, or the default names a disabled tier.</exception>
         /// <remarks>
-        /// Called from the configuration store, which hands over the object it is about to cache and
-        /// write - so assigning an id here is what persists it. That is how a tier added by hand, or
-        /// by an API caller that does not know about ids, gets one.
-        ///
-        /// The suffix is user input that feeds file name matching, so it is worth refusing rather
-        /// than tidying away: an empty one would match nearly everything, and two tiers sharing a
-        /// suffix means one of them can never be served and the administrator cannot see which.
-        ///
-        /// The default is checked for the same reason. Pointing it at a tier that is missing or
-        /// disabled is indistinguishable, from the outside, from not setting it at all - the server
-        /// carries on with the first enabled tier either way - so the moment to say so is now.
+        /// The configuration store passes the object it is about to write, so ids assigned here are
+        /// what get saved.
         /// </remarks>
         public static void PrepareForSave(DownloadOptions options)
         {
@@ -274,18 +244,13 @@ namespace MediaBrowser.Model.Configuration
 
                 if (named is null)
                 {
-                    // Names no tier at all, which is what leaving the field out looks like: the
-                    // property starts on the seed's default, so a caller sending its own tiers and
-                    // no default arrives here carrying an id that means nothing to them. Clearing
-                    // it hands them the first enabled tier, which is what they asked for by saying
-                    // nothing.
+                    // Names no tier at all - what a caller sending its own tiers and no default
+                    // looks like, since the property starts on the seed's id. Treated as unset.
                     defaultTierId = null;
                 }
                 else if (!named.Enabled)
                 {
-                    // Naming a tier that is right there but switched off is different: it is a
-                    // choice, and it behaves exactly like no choice at all, so it is worth refusing
-                    // at the moment it is written rather than quietly doing something else.
+                    // A deliberate choice that would silently do nothing, so it is refused.
                     throw new ArgumentException("The default download tier is disabled, so no user can be given it. Enable it, pick another, or leave the default unset.");
                 }
             }

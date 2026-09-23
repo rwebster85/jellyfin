@@ -1,12 +1,9 @@
 namespace Jellyfin.Api.Models.DownloadDtos
 {
     /// <summary>
-    /// A download tier as a user sees it.
+    /// A download tier as a user sees it. The file name suffix is deliberately left out: nothing a
+    /// client does with a tier needs it.
     /// </summary>
-    /// <remarks>
-    /// The file name suffix is deliberately not here. It is the contract between the administrator
-    /// and whatever produces the files, and nothing a user's client does with a tier needs it.
-    /// </remarks>
     public class DownloadTierInfoDto
     {
         /// <summary>

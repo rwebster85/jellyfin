@@ -19,16 +19,8 @@ namespace Jellyfin.Api.Helpers
         /// the folder's only version.
         /// </summary>
         /// <remarks>
-        /// The search is quality-major: the user's own tier is looked for across every location before
-        /// the next tier is tried anywhere. A tier is a choice somebody made; which location a file
-        /// happens to sit in is not, so the tier wins.
-        ///
-        /// Tiers are opt-in. A file whose name ends with a suffix the administrator defined joins
-        /// the tier system - <c>&lt;stem&gt; - High</c>, if that is what they called one; a folder
-        /// holding one plainly-named video is served as-is, so an admin who does not care about two
-        /// sizes never has to learn the suffix. That untiered file is the last thing tried, after
-        /// every tier including ones the admin has not enabled, because the only remaining
-        /// alternative is the item's own file.
+        /// Each tier is looked for in every location before the next tier is tried, so the user's
+        /// choice beats location order. A folder's only video, whatever its name, is tried last.
         /// </remarks>
         /// <param name="options">The download options.</param>
         /// <param name="path">The path of the item being downloaded.</param>
@@ -87,23 +79,13 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
-        /// Finds the item folder's single video whatever it is called, which is how an admin who
-        /// does not want to think about tiers puts one file in a folder and has it served.
+        /// Finds the item folder's single video whatever it is called, so tiers are optional: one
+        /// plainly-named file in a folder is served as it is.
         /// </summary>
         /// <remarks>
-        /// This runs on filename alone, so <strong>any unrecognised suffix is treated as
-        /// untiered</strong>. Only the suffixes the administrator defined are tiers;
-        /// <c>Film - Low.mkv</c> or a typo like <c>Film - Hihg.mkv</c> matches no tier and arrives
-        /// here, where it is served like any other single file. Forgiving on purpose - the admin
-        /// plainly meant that file to be used.
-        ///
-        /// The cost of that forgiveness shows up only alongside a second video: the typo still
-        /// matches no tier, two videos means this refuses to choose, and the item falls through to
-        /// its own file with nothing naming what went wrong.
-        ///
-        /// Refusing to choose is the same instinct as the tiered search. With nothing saying which
-        /// file is wanted, guessing hands somebody the wrong film, which is worse than falling
-        /// through to the original.
+        /// A file with an unrecognised suffix (<c>Film - Low.mkv</c>, or a typo) counts as having no tier.
+        /// With two videos in the folder it refuses to guess - the wrong film is worse than the
+        /// original.
         /// </remarks>
         private static string? FindUntieredInLocations(string[] locations, string folderName, ILogger? logger)
         {

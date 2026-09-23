@@ -8,9 +8,8 @@ using Xunit;
 namespace Jellyfin.Model.Tests.Configuration
 {
     /// <summary>
-    /// The download settings are stored as XML, and whether a server starts from the seeded tiers
-    /// or from none turns on what the serializer does with an element that is not in the file - so
-    /// it is pinned here rather than assumed.
+    /// Whether a server starts from the seeded tiers or from none depends on how the XML serializer
+    /// treats a missing element, so it is pinned here.
     /// </summary>
     public static class DownloadOptionsSerializationTests
     {
@@ -43,9 +42,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void AFileWithNoTierElement_StartsFromTheSeed()
         {
-            // A property initializer survives an element that is absent from the file, which is
-            // what lets a settings file written before tiers existed - or one hand-written from
-            // scratch - come up with working examples rather than nothing at all.
+            // A property initializer survives an absent element, so such a file starts from the seed.
             var options = Deserialize("""
                 <?xml version="1.0" encoding="utf-8"?>
                 <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -63,9 +60,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void AFileWrittenBeforeAllowOriginal_KeepsItOn()
         {
-            // Every settings file saved before the option existed lacks the element. The initializer
-            // survives that, so an upgrade offers the choice rather than reading the absence as
-            // false - which is what it would be, were the default the zero value.
+            // A file saved before the option existed lacks the element, and must read it as on.
             var options = Deserialize("""
                 <?xml version="1.0" encoding="utf-8"?>
                 <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -81,9 +76,7 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void AnEmptyTierElement_IsKeptEmpty()
         {
-            // The other half of the same mechanism, and the one that makes "this server does not
-            // use tiers" expressible: an element that IS present and empty overrides the seed, and
-            // has to keep doing so across a restart.
+            // A present but empty element overrides the seed: that is how "no tiers" is stored.
             var stored = Deserialize("""
                 <?xml version="1.0" encoding="utf-8"?>
                 <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -113,12 +106,8 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         /// <summary>
-        /// Reads the settings back, through an <see cref="XmlReader"/> rather than straight from a
-        /// <see cref="TextReader"/>: the simpler overload leaves DTD processing and an
-        /// <see cref="System.Xml.XmlResolver"/> available, which is how an XML parser is talked into
-        /// fetching external entities or expanding one into a denial of service. Neither is a real
-        /// risk for a string literal in a test, but the rule is worth honouring where the test would
-        /// otherwise be read as the example of how to do it.
+        /// Reads the settings back through an <see cref="XmlReader"/> with DTD processing off, the
+        /// safe way to deserialize XML even from a string literal.
         /// </summary>
         private static DownloadOptions Deserialize(string xml)
         {
