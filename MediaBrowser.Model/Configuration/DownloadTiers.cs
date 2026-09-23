@@ -53,7 +53,7 @@ namespace MediaBrowser.Model.Configuration
         /// <summary>
         /// Creates the tiers a server starts from - working examples rather than placeholders, so
         /// that dropping a rendition into a download location works without configuring anything
-        /// first. They match what <c>tools/Portable</c> emits.
+        /// first.
         /// </summary>
         /// <returns>A fresh seed, which the caller owns.</returns>
         public static DownloadTier[] CreateSeedTiers() =>

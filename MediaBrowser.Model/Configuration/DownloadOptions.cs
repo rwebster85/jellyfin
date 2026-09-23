@@ -39,8 +39,7 @@ namespace MediaBrowser.Model.Configuration
         /// receives.
         ///
         /// A server with no settings file yet starts from <see cref="DownloadTiers.CreateSeedTiers"/>
-        /// - working examples matching what <c>tools/Portable</c> emits, rather than placeholders
-        /// that would match nothing. An administrator who wants none deletes them, and an empty
+        /// - working examples rather than placeholders that would match nothing. An administrator who wants none deletes them, and an empty
         /// <c>&lt;Tiers /&gt;</c> element stays empty: the serializer only leaves this initial value
         /// in place when the element is absent altogether, which is a file that has never been
         /// saved.

@@ -10,8 +10,8 @@ namespace Jellyfin.Model.Tests.Configuration
         [Fact]
         public static void GetTiers_StartsFromWorkingExamples()
         {
-            // A server with no settings file yet gets the pair tools/Portable emits, so dropping a
-            // rendition in works without configuring anything. Placeholders would match nothing,
+            // A server with no settings file yet gets a working pair, so dropping a rendition in
+            // works without configuring anything. Placeholders would match nothing,
             // which is a silent no-op rather than a starting point.
             var tiers = DownloadTiers.GetTiers(new DownloadOptions());
 
