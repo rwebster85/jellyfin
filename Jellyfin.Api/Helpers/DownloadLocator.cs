@@ -22,6 +22,29 @@ namespace Jellyfin.Api.Helpers
         /// Each tier is looked for in every location before the next tier is tried, so the user's
         /// choice beats location order. A folder's only video, whatever its name, is tried last.
         /// </remarks>
+        /// <example>
+        /// Downloading <c>/movies/Up (2009)/Up (2009) - BluRay 1080p.mkv</c> as a user on
+        /// <c>High</c>, with <c>Standard</c> the other tier. The download folder is
+        /// <c>&lt;location&gt;/Up (2009)/</c>:
+        /// <code>
+        /// 1. Up (2009) - BluRay 1080p - High.mkv      served: named after the item's own file
+        ///    Up (2009) - WEB-DL 2160p - High.mkv
+        ///
+        /// 2. Up (2009) - WEB-DL 2160p - High.mkv      served: the only High file
+        ///
+        /// 3. Up (2009) - WEB-DL 2160p - High.mkv      nothing: two High files, neither named after
+        ///    Up (2009) - DV 2160p - High.mkv          the item's own, so it will not guess
+        ///
+        /// 4. Up (2009) - BluRay 1080p - Standard.mkv  served: no High file, so the next tier
+        ///
+        /// 5. portable copy.mkv                        served: the folder's only video, no tier needed
+        ///
+        /// 6. one.mkv                                  nothing: two videos with no tier suffix
+        ///    two.mkv
+        /// </code>
+        /// With two locations, a <c>High</c> file in the second beats a <c>Standard</c> file in the
+        /// first. Nothing found means the item's own file is served, or 404 on the optimised routes.
+        /// </example>
         /// <param name="options">The download options.</param>
         /// <param name="path">The path of the item being downloaded.</param>
         /// <param name="preferredTier">The tier the user asked for, or <c>null</c> for the default.</param>

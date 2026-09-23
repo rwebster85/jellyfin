@@ -154,6 +154,17 @@ namespace MediaBrowser.Model.Configuration
         /// Disabled tiers are still searched: enabling decides what a user may choose, not what may
         /// be served, and the alternative is the item's own, larger, file.
         /// </remarks>
+        /// <example>
+        /// Tiers <c>Large</c>, <c>Medium</c> and <c>Small</c>, in that order, with <c>Small</c>
+        /// disabled and <c>Medium</c> the default:
+        /// <code>
+        /// User chose Large            -> Large, Medium, Small
+        /// User has not chosen         -> Medium, Large, Small   (the default leads)
+        /// User chose Small            -> Medium, Large, Small   (disabled, so treated as no choice)
+        /// User chose the original     -> Medium, Large, Small   (not a tier, so treated as no choice)
+        /// If all three were disabled  -> Large, Medium, Small   (no choice or default, so the table's order)
+        /// </code>
+        /// </example>
         public static IReadOnlyList<string> GetSearchOrder(DownloadOptions options, string? preferred)
         {
             var tiers = GetTiers(options);
