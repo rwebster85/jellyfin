@@ -58,6 +58,7 @@ public class LibraryController : BaseJellyfinApiController
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ILogger<LibraryController> _logger;
     private readonly IServerConfigurationManager _serverConfigurationManager;
+    private readonly DownloadHelper _downloadHelper;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryController"/> class.
@@ -73,6 +74,7 @@ public class LibraryController : BaseJellyfinApiController
     /// <param name="libraryMonitor">Instance of the <see cref="ILibraryMonitor"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{LibraryController}"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
+    /// <param name="downloadHelper">Instance of the <see cref="DownloadHelper"/>.</param>
     public LibraryController(
         IProviderManager providerManager,
         ISimilarItemsManager similarItemsManager,
@@ -84,7 +86,8 @@ public class LibraryController : BaseJellyfinApiController
         ILocalizationManager localization,
         ILibraryMonitor libraryMonitor,
         ILogger<LibraryController> logger,
-        IServerConfigurationManager serverConfigurationManager)
+        IServerConfigurationManager serverConfigurationManager,
+        DownloadHelper downloadHelper)
     {
         _providerManager = providerManager;
         _similarItemsManager = similarItemsManager;
@@ -97,6 +100,7 @@ public class LibraryController : BaseJellyfinApiController
         _libraryMonitor = libraryMonitor;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
+        _downloadHelper = downloadHelper;
     }
 
     /// <summary>
@@ -703,10 +707,18 @@ public class LibraryController : BaseJellyfinApiController
             await LogDownloadAsync(item, user).ConfigureAwait(false);
         }
 
-        // Quotes are valid in linux. They'll possibly cause issues here.
-        var filename = Path.GetFileName(item.Path)?.Replace("\"", string.Empty, StringComparison.Ordinal);
+        // An optimised download version, when the server is set to serve one in place of the item's own file.
+        var downloadVersion = _downloadHelper.FindForPlainDownload(item.Path, user?.Id ?? Guid.Empty);
+        if (downloadVersion is not null)
+        {
+            _logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
+        }
 
-        var filePath = item.Path;
+        var filePath = downloadVersion ?? item.Path;
+
+        // Quotes are valid in linux. They'll possibly cause issues here.
+        var filename = Path.GetFileName(filePath)?.Replace("\"", string.Empty, StringComparison.Ordinal);
+
         if (item.IsFileProtocol)
         {
             // PhysicalFile does not work well with symlinks at the moment.
