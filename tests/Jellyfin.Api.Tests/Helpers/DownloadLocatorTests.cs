@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Jellyfin.Api.Helpers;
 using MediaBrowser.Model.Configuration;
 using Xunit;
@@ -222,6 +224,33 @@ namespace Jellyfin.Api.Tests.Helpers
                 Find(empty, location));
         }
 
+        [Fact]
+        public void FindDownloadVersion_SkipsALocationThatCannotBeRead()
+        {
+            // An unreadable folder must not fail the search: the plain route would 500 rather than
+            // fall back to the item's own file.
+            var unreadable = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - High.mkv");
+            var readable = CreateLocation("Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv");
+            var folder = Path.Combine(unreadable, FolderName);
+
+            SetReadable(folder, false);
+            try
+            {
+                if (IsReadable(folder))
+                {
+                    Assert.Skip("Could not make a folder unreadable here - running as root?");
+                }
+
+                Assert.Equal(
+                    Path.Combine(readable, FolderName, "Avengers - Infinity War (2018) - BluRay 1080p - Standard.mkv"),
+                    Find(unreadable, readable));
+            }
+            finally
+            {
+                SetReadable(folder, true);
+            }
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData(null)]
@@ -249,7 +278,7 @@ namespace Jellyfin.Api.Tests.Helpers
         private static string? Find(params string[] locations)
             => DownloadLocator.FindDownloadVersion(
                 new DownloadOptions { Locations = locations },
-                Path.Combine("Y:", "Movies", FolderName, SourceName));
+                Path.Combine("/movies", FolderName, SourceName));
 
         /// <summary>
         /// Runs the lookup against the two tiers these tests use, enabled by membership of
@@ -263,7 +292,7 @@ namespace Jellyfin.Api.Tests.Helpers
                     Locations = locations,
                     Tiers = [Tier("High", enabled), Tier("Standard", enabled)]
                 },
-                Path.Combine("Y:", "Movies", FolderName, SourceName),
+                Path.Combine("/movies", FolderName, SourceName),
                 preferred);
 
         private static DownloadTier Tier(string suffix, string[] enabled)
@@ -274,6 +303,49 @@ namespace Jellyfin.Api.Tests.Helpers
                 Name = suffix,
                 Enabled = enabled.Contains(suffix, StringComparer.OrdinalIgnoreCase)
             };
+
+        private static void SetReadable(string folder, bool readable)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var info = new DirectoryInfo(folder);
+                var security = info.GetAccessControl();
+                var rule = new FileSystemAccessRule(
+                    WindowsIdentity.GetCurrent().User!,
+                    FileSystemRights.ListDirectory,
+                    AccessControlType.Deny);
+
+                if (readable)
+                {
+                    security.RemoveAccessRule(rule);
+                }
+                else
+                {
+                    security.AddAccessRule(rule);
+                }
+
+                info.SetAccessControl(security);
+            }
+            else
+            {
+                File.SetUnixFileMode(
+                    folder,
+                    readable ? UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute : UnixFileMode.None);
+            }
+        }
+
+        private static bool IsReadable(string folder)
+        {
+            try
+            {
+                _ = Directory.EnumerateFiles(folder).Any();
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
 
         private string CreateLocation(params string[] fileNames)
         {

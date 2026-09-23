@@ -20,7 +20,7 @@ namespace Jellyfin.Model.Tests.Configuration
             var options = new DownloadOptions
             {
                 Enabled = true,
-                Locations = ["/mnt/portable"],
+                Locations = ["/media/downloads"],
                 Tiers =
                 [
                     new DownloadTier { Id = "a", Suffix = "Large", Name = "1080p", Description = "For a laptop" },
@@ -51,7 +51,7 @@ namespace Jellyfin.Model.Tests.Configuration
                 <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
                   <Enabled>true</Enabled>
                   <Locations>
-                    <string>/mnt/5TB1/Portable/Movies</string>
+                    <string>/media/downloads</string>
                   </Locations>
                   <Behaviour>SeparateAction</Behaviour>
                 </DownloadOptions>
