@@ -198,6 +198,22 @@ namespace Jellyfin.Api.Controllers
         }
 
         /// <summary>
+        /// Gets whether optimised downloads are on and what the plain Download does, so a client can
+        /// decide which download actions to offer without reading the administrator's settings.
+        /// </summary>
+        /// <response code="200">Download behaviour returned.</response>
+        /// <returns>The feature switch and the behaviour.</returns>
+        [HttpGet("Downloads/Behaviour")]
+        [Authorize]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<DownloadBehaviourDto> GetDownloadBehaviour()
+        {
+            var (enabled, behaviour) = downloadHelper.GetBehaviour();
+
+            return new DownloadBehaviourDto { Enabled = enabled, Behaviour = behaviour };
+        }
+
+        /// <summary>
         /// Gets the download tiers this user may choose from, and the one they are on.
         /// </summary>
         /// <response code="200">Download tier options returned.</response>

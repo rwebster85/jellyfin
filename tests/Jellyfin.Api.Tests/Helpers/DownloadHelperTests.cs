@@ -100,6 +100,12 @@ namespace Jellyfin.Api.Tests.Helpers
         public void GetEnabledTiers_IsEmptyWhileTheFeatureIsOff()
             => Assert.Empty(Create(Options(DownloadBehaviour.Substitute, enabled: false)).GetEnabledTiers());
 
+        [Theory]
+        [InlineData(true, DownloadBehaviour.Substitute)]
+        [InlineData(false, DownloadBehaviour.SeparateAction)]
+        public void GetBehaviour_ReportsTheSwitchAndTheBehaviourAsConfigured(bool enabled, DownloadBehaviour behaviour)
+            => Assert.Equal((enabled, behaviour), Create(Options(behaviour, enabled)).GetBehaviour());
+
         public void Dispose()
         {
             _cache.Dispose();

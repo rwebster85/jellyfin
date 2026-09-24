@@ -115,6 +115,18 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
+        /// Gets whether optimised downloads are on, and what the plain Download does - all a client
+        /// needs to decide which download actions to offer.
+        /// </summary>
+        /// <returns>The feature switch and the behaviour.</returns>
+        public (bool Enabled, DownloadBehaviour Behaviour) GetBehaviour()
+        {
+            var options = Options;
+
+            return (options.Enabled, options.Behaviour);
+        }
+
+        /// <summary>
         /// Gets a value indicating whether users are offered the original file as a choice.
         /// </summary>
         /// <returns><c>true</c> when the original may be chosen.</returns>
