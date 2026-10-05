@@ -10,9 +10,9 @@ namespace MediaBrowser.Controller.Library
     {
         /// <summary>
         /// The store's key, which is also the name of the file it is saved to -
-        /// <c>optimised-downloads.xml</c> in the configuration directory.
+        /// <c>downloads.xml</c> in the configuration directory.
         /// </summary>
-        public const string StoreKey = "optimised-downloads";
+        public const string StoreKey = "downloads";
 
         /// <summary>
         /// Initializes a new instance of the <see cref="DownloadConfigurationStore"/> class.
