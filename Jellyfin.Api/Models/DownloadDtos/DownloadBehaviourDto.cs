@@ -4,8 +4,7 @@ namespace Jellyfin.Api.Models.DownloadDtos
 {
     /// <summary>
     /// What a client needs to know to offer downloads: whether optimised downloads are on, and what
-    /// the plain Download does. The rest of the settings - folder paths, tier suffixes - stay with
-    /// the administrator.
+    /// the plain Download does. The rest of the settings, such as tier suffixes, stay with the admin.
     /// </summary>
     public class DownloadBehaviourDto
     {
