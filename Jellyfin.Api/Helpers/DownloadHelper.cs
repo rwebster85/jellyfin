@@ -13,7 +13,6 @@ using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Api.Helpers
 {
@@ -26,14 +25,12 @@ namespace Jellyfin.Api.Helpers
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
-    /// <param name="logger">Instance of the <see cref="ILogger{DownloadHelper}"/> interface.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
         IDisplayPreferencesManager displayPreferencesManager,
         IMediaEncoder mediaEncoder,
         IMediaSourceManager mediaSourceManager,
-        IMemoryCache memoryCache,
-        ILogger<DownloadHelper> logger)
+        IMemoryCache memoryCache)
     {
         /// <summary>
         /// Gets the download options. Read on each use, so a saved change applies without a restart.
@@ -42,23 +39,15 @@ namespace Jellyfin.Api.Helpers
             => serverConfigurationManager.GetConfiguration<DownloadOptions>(DownloadConfigurationStore.StoreKey);
 
         /// <summary>
-        /// Finds the download version of a file at this user's tier, falling back to the other
-        /// tiers. Always <c>null</c> while the feature is off.
+        /// Finds the download version of a file at this user's tier. Always <c>null</c> for now:
+        /// the transcoded source is not built yet, and the item's own file is served.
         /// </summary>
         /// <param name="path">The path of the item being downloaded.</param>
         /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
         /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
         public string? FindForUser(string? path, Guid userId)
         {
-            var options = Options;
-
-            return options.Enabled
-                ? DownloadLocator.FindDownloadVersion(
-                    options,
-                    path,
-                    DownloadPreferences.GetTier(displayPreferencesManager, userId),
-                    logger)
-                : null;
+            return null;
         }
 
         /// <summary>
