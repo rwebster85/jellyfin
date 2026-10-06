@@ -5,8 +5,8 @@ using System.Linq;
 namespace MediaBrowser.Model.Configuration
 {
     /// <summary>
-    /// Reads the tiers out of the download options: which exist, which a user may choose, the
-    /// default, and the search order.
+    /// Reads the tiers out of the download options: which exist, which a user may choose, and the
+    /// default.
     /// </summary>
     /// <remarks>
     /// Consumers go through here rather than reading <see cref="DownloadOptions.Tiers"/> directly,
@@ -141,54 +141,6 @@ namespace MediaBrowser.Model.Configuration
             var wanted = stored.Trim();
 
             return tiers.FirstOrDefault(tier => !string.IsNullOrEmpty(tier.Id) && string.Equals(tier.Id, wanted, StringComparison.OrdinalIgnoreCase));
-        }
-
-        /// <summary>
-        /// Gets the tier suffixes to look for, in the order they should be tried: the user's tier or
-        /// else the default, then the other enabled tiers, then the disabled ones.
-        /// </summary>
-        /// <param name="options">The download options.</param>
-        /// <param name="preferred">The user's stored choice, or <c>null</c>.</param>
-        /// <returns>The suffixes to try, in order. Empty when no tier is defined at all.</returns>
-        /// <remarks>
-        /// Disabled tiers are still searched: enabling decides what a user may choose, not what may
-        /// be served, and the alternative is the item's own, larger, file.
-        /// </remarks>
-        /// <example>
-        /// Tiers <c>Large</c>, <c>Medium</c> and <c>Small</c>, in that order, with <c>Small</c>
-        /// disabled and <c>Medium</c> the default:
-        /// <code>
-        /// User chose Large            -> Large, Medium, Small
-        /// User has not chosen         -> Medium, Large, Small   (the default leads)
-        /// User chose Small            -> Medium, Large, Small   (disabled, so treated as no choice)
-        /// User chose the original     -> Medium, Large, Small   (not a tier, so treated as no choice)
-        /// If all three were disabled  -> Large, Medium, Small   (no choice or default, so the table's order)
-        /// </code>
-        /// </example>
-        public static IReadOnlyList<string> GetSearchOrder(DownloadOptions options, string? preferred)
-        {
-            var tiers = GetTiers(options);
-            var enabled = tiers.Where(tier => tier.Enabled).ToList();
-
-            // A choice the administrator has since disabled no longer counts, so the default leads.
-            var chosen = Find(enabled, preferred) ?? ResolveDefault(enabled, options.DefaultTierId);
-
-            var order = new List<string>(tiers.Count);
-
-            if (chosen is not null)
-            {
-                order.Add(chosen.Suffix);
-            }
-
-            order.AddRange(enabled
-                .Where(tier => !ReferenceEquals(tier, chosen))
-                .Select(tier => tier.Suffix));
-
-            order.AddRange(tiers
-                .Where(tier => !tier.Enabled)
-                .Select(tier => tier.Suffix));
-
-            return order;
         }
 
         /// <summary>

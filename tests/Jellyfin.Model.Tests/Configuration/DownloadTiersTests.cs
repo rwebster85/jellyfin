@@ -70,7 +70,6 @@ namespace Jellyfin.Model.Tests.Configuration
             var options = new DownloadOptions { Tiers = [] };
 
             Assert.Empty(DownloadTiers.GetTiers(options));
-            Assert.Empty(DownloadTiers.GetSearchOrder(options, null));
         }
 
         [Fact]
@@ -160,79 +159,21 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         [Fact]
-        public static void GetSearchOrder_PutsTheUsersOwnTierFirst()
-        {
-            var options = new DownloadOptions { Tiers = [Tier("a", "Large"), Tier("b", "Small")] };
-
-            Assert.Equal(["Small", "Large"], DownloadTiers.GetSearchOrder(options, "b"));
-        }
-
-        [Fact]
-        public static void GetSearchOrder_PutsTheDefaultFirstForAUserWhoHasNotChosen()
-        {
-            // The default can sit anywhere in the table, and still leads for a user who has not chosen.
-            var options = new DownloadOptions
-            {
-                Tiers = [Tier("a", "Large"), Tier("b", "Small")],
-                DefaultTierId = "b"
-            };
-
-            Assert.Equal(["Small", "Large"], DownloadTiers.GetSearchOrder(options, null));
-        }
-
-        [Fact]
-        public static void GetSearchOrder_KeepsAChoiceWhenTheAdminRenamesTheSuffix()
+        public static void Find_KeepsAChoiceWhenTheAdminRenamesTheSuffix()
         {
             // Renaming a tier's suffix keeps everyone who chose it.
             var options = new DownloadOptions { Tiers = [Tier("a", "Large"), Tier("b", "Tiny")] };
 
-            Assert.Equal(["Tiny", "Large"], DownloadTiers.GetSearchOrder(options, "b"));
+            Assert.Equal("Tiny", DownloadTiers.Find(DownloadTiers.GetTiers(options), "b")?.Suffix);
         }
 
         [Fact]
-        public static void GetSearchOrder_IgnoresAChoiceThatNamesASuffixRatherThanAnId()
+        public static void Find_IgnoresAChoiceThatNamesASuffixRatherThanAnId()
         {
             // Suffixes are editable, so a choice matched by name could come to mean another tier.
             var options = new DownloadOptions { Tiers = [Tier("a", "High"), Tier("b", "Standard")] };
 
-            Assert.Equal(["High", "Standard"], DownloadTiers.GetSearchOrder(options, "Standard"));
-        }
-
-        [Fact]
-        public static void GetSearchOrder_DemotesATierTheAdminHasTurnedOff()
-        {
-            // The user chose Small, then the admin disabled it: the default leads, and Small is
-            // searched last rather than dropped.
-            var options = new DownloadOptions
-            {
-                Tiers = [Tier("a", "Large"), Tier("b", "Small", enabled: false)]
-            };
-
-            Assert.Equal(["Large", "Small"], DownloadTiers.GetSearchOrder(options, "b"));
-        }
-
-        [Fact]
-        public static void GetSearchOrder_SearchesEveryTierWhenNoneIsEnabled()
-        {
-            var options = new DownloadOptions
-            {
-                Tiers = [Tier("a", "Large", enabled: false), Tier("b", "Small", enabled: false)]
-            };
-
-            Assert.Equal(["Large", "Small"], DownloadTiers.GetSearchOrder(options, null));
-        }
-
-        [Fact]
-        public static void GetEnabled_IsUnaffectedByTheSearchOrder()
-        {
-            // What a user may choose, and what the default is, still follow the ticks exactly.
-            var options = new DownloadOptions
-            {
-                Tiers = [Tier("a", "Large", enabled: false), Tier("b", "Small")]
-            };
-
-            Assert.Equal(["Small"], DownloadTiers.GetEnabled(options).Select(tier => tier.Suffix));
-            Assert.Equal("Small", DownloadTiers.GetDefault(options)?.Suffix);
+            Assert.Null(DownloadTiers.Find(DownloadTiers.GetTiers(options), "Standard"));
         }
 
         [Fact]
@@ -363,20 +304,6 @@ namespace Jellyfin.Model.Tests.Configuration
             var options = new DownloadOptions { Tiers = [Tier("Original", "Large")] };
 
             Assert.Throws<ArgumentException>(() => DownloadTiers.PrepareForSave(options));
-        }
-
-        [Fact]
-        public static void GetSearchOrder_TreatsTheOriginalAsNoTier()
-        {
-            // The optimised routes still search for a user who chose the original: the stored value
-            // "original" matches no tier, so the default leads.
-            var options = new DownloadOptions
-            {
-                Tiers = [Tier("a", "Large"), Tier("b", "Small")],
-                DefaultTierId = "b"
-            };
-
-            Assert.Equal(["Small", "Large"], DownloadTiers.GetSearchOrder(options, DownloadTiers.OriginalId));
         }
 
         private static DownloadTier Tier(string id, string suffix, bool enabled = true)
