@@ -14,11 +14,6 @@ namespace MediaBrowser.Model.Configuration
         public bool Enabled { get; set; }
 
         /// <summary>
-        /// Gets or sets the folders searched for pre-made download versions.
-        /// </summary>
-        public string[] Locations { get; set; } = [];
-
-        /// <summary>
         /// Gets or sets the tiers this server offers, in fall-back order.
         /// </summary>
         /// <remarks>

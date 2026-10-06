@@ -19,7 +19,6 @@ namespace Jellyfin.Model.Tests.Configuration
             var options = new DownloadOptions
             {
                 Enabled = true,
-                Locations = ["/media/downloads"],
                 Tiers =
                 [
                     new DownloadTier { Id = "a", Suffix = "Large", Name = "1080p", Description = "For a laptop" },
@@ -43,7 +42,8 @@ namespace Jellyfin.Model.Tests.Configuration
         public static void AFileWithNoTierElement_StartsFromTheSeed()
         {
             // A hand-written settings file may leave the element out. A property initializer survives
-            // an absent element, so such a file starts from the seed.
+            // an absent element, so such a file starts from the seed. The Locations element is no
+            // longer a setting: it stays to show a file saved by an older build still loads.
             var options = Deserialize("""
                 <?xml version="1.0" encoding="utf-8"?>
                 <DownloadOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
