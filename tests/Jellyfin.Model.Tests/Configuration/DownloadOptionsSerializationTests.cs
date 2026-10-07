@@ -66,6 +66,15 @@ namespace Jellyfin.Model.Tests.Configuration
         }
 
         [Fact]
+        public static void TranscodeLocations_RoundTripInOrder()
+        {
+            // The order is the admin's preference for where a new copy goes, so it must survive.
+            var restored = RoundTrip(new DownloadOptions { TranscodeLocations = ["/mnt/b/downloads", "/mnt/a/downloads"] });
+
+            Assert.Equal(["/mnt/b/downloads", "/mnt/a/downloads"], restored.TranscodeLocations);
+        }
+
+        [Fact]
         public static void AnEmptyTierElement_IsKeptEmpty()
         {
             // A present but empty element overrides the seed: that is how "no tiers" is stored.

@@ -14,6 +14,16 @@ namespace MediaBrowser.Model.Configuration
         public bool Enabled { get; set; }
 
         /// <summary>
+        /// Gets or sets the folders transcoded download copies are kept in, in order of preference.
+        /// A new copy goes in the first one with room for it; an existing copy is found in any.
+        /// </summary>
+        /// <remarks>
+        /// Empty means the server's own <c>downloads</c> folder under its data path, the way trickplay
+        /// images default to <c>trickplay</c> there. More than one lets copies spread across disks.
+        /// </remarks>
+        public string[] TranscodeLocations { get; set; } = [];
+
+        /// <summary>
         /// Gets or sets the tiers this server offers, in fall-back order.
         /// </summary>
         /// <remarks>
