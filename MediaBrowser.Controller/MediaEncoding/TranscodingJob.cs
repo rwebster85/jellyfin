@@ -157,6 +157,11 @@ public sealed class TranscodingJob : IDisposable
     public int PingTimeout { get; set; }
 
     /// <summary>
+    /// Gets a value indicating whether this job makes a copy for download.
+    /// </summary>
+    public bool IsDownload => Type == TranscodingJobType.Download;
+
+    /// <summary>
     /// Increments the active request count.
     /// </summary>
     /// <returns>The incremented count.</returns>

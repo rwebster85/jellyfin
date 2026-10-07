@@ -259,7 +259,8 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
         try
         {
-            if (jobType == TranscodingJobType.Progressive)
+            // A download copy is a single file too, and the HLS clean-up would also take its sidecar.
+            if (jobType is TranscodingJobType.Progressive or TranscodingJobType.Download)
             {
                 DeleteProgressivePartialStreamFiles(path);
             }
@@ -542,7 +543,9 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
     private void StartThrottler(StreamState state, TranscodingJob transcodingJob)
     {
-        if (EnableThrottling(state)
+        // A download copy is wanted in full, not paced to playback.
+        if (!transcodingJob.IsDownload
+            && EnableThrottling(state)
             && (_mediaEncoder.IsPkeyPauseSupported
                 || _mediaEncoder.EncoderVersion <= _maxFFmpegCkeyPauseSupported))
         {
@@ -614,7 +617,9 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     {
         var activeRequestCount = job.DecrementActiveRequestCount();
         _logger.LogDebug("OnTranscodeEndRequest job.ActiveRequestCount={ActiveRequestCount}", activeRequestCount);
-        if (activeRequestCount <= 0)
+
+        // A download copy carries on after its last reader leaves, so the next request finds it made.
+        if (activeRequestCount <= 0 && !job.IsDownload)
         {
             PingTimer(job, false);
         }
