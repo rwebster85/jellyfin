@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -54,48 +56,70 @@ namespace Jellyfin.Api.Helpers
         private const string Settings = "mkv h264 1280x720 3000k aac 2ch 192k";
 
         /// <summary>
+        /// The bitrate a copy is expected to average, video and audio together, for estimating its
+        /// size. Matches <see cref="Settings"/>.
+        /// </summary>
+        private const long ExpectedBitRate = 3_000_000 + 192_000;
+
+        /// <summary>
         /// How often a running copy is checked for having finished.
         /// </summary>
         private static readonly TimeSpan _exitPollInterval = TimeSpan.FromSeconds(1);
 
         /// <summary>
-        /// The copies being made, by output path. Kept here rather than looked up in the transcode
-        /// manager, whose list keeps finished progressive jobs: a copy being remade at the same path
-        /// could otherwise be matched to the job that made the old one.
+        /// The copies being made, by relative path, which is the same in every location. Kept here
+        /// rather than looked up in the transcode manager, whose list keeps finished progressive
+        /// jobs: a copy being remade could otherwise be matched to the job that made the old one.
         /// </summary>
         private readonly ConcurrentDictionary<string, TranscodingJob> _running = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Opens a copy that is not finished yet: joins its encode if one is running, or starts one.
+        /// Opens a copy that is not finished yet: joins its encode if one is running, or starts one
+        /// in the first location with room for it.
         /// </summary>
         /// <param name="item">The version being copied.</param>
         /// <param name="tierId">The tier's id.</param>
-        /// <param name="outputPath">Where the copy is written.</param>
+        /// <param name="locations">The locations copies are kept in, in order of preference.</param>
+        /// <param name="relativePath">The copy's path relative to a location.</param>
         /// <param name="httpContext">The request asking for the copy. Read while the encode is set up,
         /// for the user and the request path, and not kept.</param>
         /// <returns>A stream that follows the copy as it grows, and ends when the encode does.</returns>
-        public async Task<Stream> OpenAsync(BaseItem item, string tierId, string outputPath, HttpContext httpContext)
+        /// <exception cref="IOException">No location has room for the copy.</exception>
+        public async Task<Stream> OpenAsync(BaseItem item, string tierId, IReadOnlyList<string> locations, string relativePath, HttpContext httpContext)
         {
             ArgumentNullException.ThrowIfNull(item);
+            ArgumentNullException.ThrowIfNull(locations);
             ArgumentNullException.ThrowIfNull(httpContext);
 
-            using (await transcodeManager.LockAsync(outputPath, CancellationToken.None).ConfigureAwait(false))
+            // Locked on the relative path, so two requests cannot start the same copy in two locations.
+            using (await transcodeManager.LockAsync(relativePath, CancellationToken.None).ConfigureAwait(false))
             {
-                if (_running.TryGetValue(outputPath, out var running) && !running.HasExited)
+                if (_running.TryGetValue(relativePath, out var running) && !running.HasExited)
                 {
                     running.IncrementActiveRequestCount();
-                    logger.LogInformation("Joining the download copy being made at {Path}", outputPath);
+                    logger.LogInformation("Joining the download copy being made at {Path}", running.Path);
 
-                    return new ProgressiveFileStream(outputPath, running, transcodeManager);
+                    return new ProgressiveFileStream(running.Path!, running, transcodeManager);
                 }
 
-                // A stale copy's sidecar goes first, so the copy is not taken for finished while it
-                // is rewritten. ffmpeg overwrites the copy itself.
-                DeleteIfExists(DownloadStorage.GetSidecarPath(outputPath));
+                var location = DownloadStorage.ChooseLocation(locations, EstimateBytes(item), GetFreeSpace)
+                    ?? throw new IOException($"No download location has room for a copy of {item.Path}");
+                var outputPath = Path.Combine(location, relativePath);
+
+                // Stale copies go first, in every location, so none is taken for finished while this
+                // one is made. In the chosen location ffmpeg overwrites the copy itself.
+                foreach (var stalePath in locations.Select(other => Path.Combine(other, relativePath)))
+                {
+                    DeleteIfExists(DownloadStorage.GetSidecarPath(stalePath));
+                    if (!string.Equals(stalePath, outputPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        DeleteIfExists(stalePath);
+                    }
+                }
 
                 var job = await StartAsync(item, outputPath, httpContext).ConfigureAwait(false);
-                _running[outputPath] = job;
-                _ = FinishAsync(job, item, tierId, outputPath, ReadSource(item));
+                _running[relativePath] = job;
+                _ = FinishAsync(job, item, tierId, relativePath, outputPath, ReadSource(item));
 
                 return new ProgressiveFileStream(outputPath, job, transcodeManager);
             }
@@ -147,6 +171,45 @@ namespace Jellyfin.Api.Helpers
             if (File.Exists(path))
             {
                 File.Delete(path);
+            }
+        }
+
+        /// <summary>
+        /// Estimates a copy's size from the item's runtime, with a tenth again as margin.
+        /// </summary>
+        /// <returns>The estimate in bytes, or 0 when the runtime is unknown.</returns>
+        private static long EstimateBytes(BaseItem item)
+        {
+            var seconds = TimeSpan.FromTicks(item.RunTimeTicks ?? 0).TotalSeconds;
+
+            return (long)(seconds * ExpectedBitRate / 8 * 1.1);
+        }
+
+        /// <summary>
+        /// Gets the free space of the filesystem a location is on, the way the dashboard's storage
+        /// view finds it: the mounted drive whose root is the longest match for the path.
+        /// </summary>
+        /// <returns>The free space in bytes, or -1 if it cannot be read.</returns>
+        private static long GetFreeSpace(string location)
+        {
+            try
+            {
+                var path = Path.GetFullPath(location);
+                DriveInfo? bestMatch = null;
+                foreach (var drive in DriveInfo.GetDrives())
+                {
+                    if (path.StartsWith(drive.RootDirectory.FullName, StringComparison.OrdinalIgnoreCase)
+                        && (bestMatch is null || drive.RootDirectory.FullName.Length > bestMatch.RootDirectory.FullName.Length))
+                    {
+                        bestMatch = drive;
+                    }
+                }
+
+                return bestMatch?.AvailableFreeSpace ?? -1;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return -1;
             }
         }
 
@@ -222,7 +285,7 @@ namespace Jellyfin.Api.Helpers
         /// <summary>
         /// Waits for a copy's encode to end, then marks the copy finished or removes what was written.
         /// </summary>
-        private async Task FinishAsync(TranscodingJob job, BaseItem item, string tierId, string outputPath, (string Path, long Size, DateTime ModifiedUtc) source)
+        private async Task FinishAsync(TranscodingJob job, BaseItem item, string tierId, string relativePath, string outputPath, (string Path, long Size, DateTime ModifiedUtc) source)
         {
             try
             {
@@ -233,9 +296,9 @@ namespace Jellyfin.Api.Helpers
 
                 // Under the same lock as OpenAsync, so no request sees the copy between the encode
                 // ending and the sidecar being written, and starts it again.
-                using (await transcodeManager.LockAsync(outputPath, CancellationToken.None).ConfigureAwait(false))
+                using (await transcodeManager.LockAsync(relativePath, CancellationToken.None).ConfigureAwait(false))
                 {
-                    _running.TryRemove(outputPath, out _);
+                    _running.TryRemove(relativePath, out _);
 
                     if (job.ExitCode == 0)
                     {
