@@ -28,11 +28,43 @@ namespace Jellyfin.Api.Tests.Helpers
             Assert.Equal(["/mnt/b", "/mnt/a"], DownloadStorage.GetLocations(options, "data"));
         }
 
+        [Theory]
+        [InlineData("Film (2000)/f.mkv", "Movies/Film (2000)")]
+        [InlineData("Show (2002)/Season 01/e.mkv", "Movies/Show (2002)/Season 01")]
+        [InlineData("Film (2000)/Featurettes/x.mkv", "Movies/Film (2000)/Featurettes")]
+        [InlineData("f.mkv", "Movies")]
+        [InlineData("..Film/f.mkv", "Movies/..Film")]
+        public void GetMirroredFolder_IsTheRootsNameThenTheSourcesFoldersBeneathIt(string source, string expected)
+        {
+            var root = Path.Combine(_root, "Movies");
+
+            Assert.Equal(
+                Native(expected),
+                DownloadStorage.GetMirroredFolder([root], Path.Combine(root, Native(source))));
+        }
+
+        [Theory]
+        [InlineData("Other/Film (2000)/f.mkv")]
+        [InlineData("Movies2/Film (2000)/f.mkv")]
+        public void GetMirroredFolder_OutsideEveryRoot_IsNull(string source)
+            => Assert.Null(DownloadStorage.GetMirroredFolder([Path.Combine(_root, "Movies")], Path.Combine(_root, Native(source))));
+
         [Fact]
-        public void GetRelativePath_IsLibraryThenTitleThenVersionAndTier()
+        public void GetMirroredFolder_UsesTheDeepestRoot_AndIgnoresATrailingSeparator()
+        {
+            var outer = Path.Combine(_root, "Media") + Path.DirectorySeparatorChar;
+            var inner = Path.Combine(_root, "Media", "Movies") + Path.DirectorySeparatorChar;
+
+            Assert.Equal(
+                Path.Combine("Movies", "Film (2000)"),
+                DownloadStorage.GetMirroredFolder([outer, inner], Path.Combine(inner, "Film (2000)", "f.mkv")));
+        }
+
+        [Fact]
+        public void GetRelativePath_IsTheMirroredFolderThenVersionAndTier()
             => Assert.Equal(
                 Path.Combine("Movies", "The Northman (2022)", "a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d.8d3a.mkv"),
-                DownloadStorage.GetRelativePath("Movies", "The Northman (2022)", _versionId, "8d3a"));
+                DownloadStorage.GetRelativePath(Path.Combine("Movies", "The Northman (2022)"), _versionId, "8d3a"));
 
         [Fact]
         public void GetSidecarPath_ReplacesOnlyTheContainerExtension()
@@ -43,7 +75,7 @@ namespace Jellyfin.Api.Tests.Helpers
         [Fact]
         public void FindFinished_IgnoresACopyWithNoSidecar_AndFindsOneInALaterLocation()
         {
-            var relative = DownloadStorage.GetRelativePath("Movies", "Film (2000)", _versionId, "8d3a");
+            var relative = DownloadStorage.GetRelativePath(Path.Combine("Movies", "Film (2000)"), _versionId, "8d3a");
             var first = Path.Combine(_root, "first");
             var second = Path.Combine(_root, "second");
 
@@ -79,6 +111,9 @@ namespace Jellyfin.Api.Tests.Helpers
                 Directory.Delete(_root, true);
             }
         }
+
+        private static string Native(string path)
+            => path.Replace('/', Path.DirectorySeparatorChar);
 
         private static void Touch(string path)
         {

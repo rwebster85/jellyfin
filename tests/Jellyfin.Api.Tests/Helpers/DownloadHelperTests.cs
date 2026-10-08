@@ -6,7 +6,6 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Caching.Memory;
 using Moq;
 using Xunit;
@@ -91,7 +90,6 @@ namespace Jellyfin.Api.Tests.Helpers
                 Mock.Of<IMediaEncoder>(),
                 Mock.Of<IMediaSourceManager>(),
                 Mock.Of<ILibraryManager>(),
-                Mock.Of<IFileSystem>(),
                 _cache);
         }
     }

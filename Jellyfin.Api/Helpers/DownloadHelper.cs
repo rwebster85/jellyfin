@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -14,7 +13,6 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
-using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Jellyfin.Api.Helpers
@@ -28,7 +26,6 @@ namespace Jellyfin.Api.Helpers
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
-    /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
@@ -36,7 +33,6 @@ namespace Jellyfin.Api.Helpers
         IMediaEncoder mediaEncoder,
         IMediaSourceManager mediaSourceManager,
         ILibraryManager libraryManager,
-        IFileSystem fileSystem,
         IMemoryCache memoryCache)
     {
         /// <summary>
@@ -59,24 +55,21 @@ namespace Jellyfin.Api.Helpers
             ArgumentNullException.ThrowIfNull(item);
 
             var tier = GetUserTier(userId) ?? GetDefaultTier();
-            var library = libraryManager.GetCollectionFolders(item).FirstOrDefault()?.Name;
-            if (tier is null || string.IsNullOrWhiteSpace(library) || string.IsNullOrWhiteSpace(item.Name))
+            if (tier is null || string.IsNullOrEmpty(item.Path))
             {
                 return null;
             }
 
-            // Named from the metadata, so an admin browsing the location can find a film's copies.
-            var title = item.ProductionYear is int year
-                ? string.Format(CultureInfo.InvariantCulture, "{0} ({1})", item.Name, year)
-                : item.Name;
+            // An extra's library is found through its owner.
+            var libraryRoots = libraryManager.GetCollectionFolders(item).SelectMany(folder => folder.PhysicalLocations);
+            var mirroredFolder = DownloadStorage.GetMirroredFolder(libraryRoots, item.Path);
+            if (mirroredFolder is null)
+            {
+                return null;
+            }
 
             var locations = DownloadStorage.GetLocations(Options, serverConfigurationManager.ApplicationPaths.DataPath);
-
-            var relativePath = DownloadStorage.GetRelativePath(
-                fileSystem.GetValidFilename(library),
-                fileSystem.GetValidFilename(title),
-                item.Id,
-                tier.Id);
+            var relativePath = DownloadStorage.GetRelativePath(mirroredFolder, item.Id, tier.Id);
 
             return new DownloadCopyTarget(tier, locations, relativePath);
         }

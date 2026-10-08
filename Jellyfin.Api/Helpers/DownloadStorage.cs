@@ -11,11 +11,18 @@ namespace Jellyfin.Api.Helpers
     /// Where transcoded download copies are kept: the folders, and a copy's path inside them.
     /// </summary>
     /// <remarks>
-    /// A copy lives at <c>&lt;location&gt;/&lt;library&gt;/&lt;title&gt;/&lt;versionId&gt;.&lt;tierId&gt;.mkv</c>,
-    /// for example <c>Movies/The Northman (2022)/a1b2...e5f6.8d3a...4f50.mkv</c>, with its sidecar
-    /// beside it as <c>.json</c>. The library and title folders let an admin find a film's copies;
-    /// the file name alone says which version and tier a copy is, so each version of a film has its
-    /// own copies.
+    /// A copy lives at <c>&lt;location&gt;/&lt;mirrored folder&gt;/&lt;versionId&gt;.&lt;tierId&gt;.mkv</c>,
+    /// with its sidecar beside it as <c>.json</c>. The mirrored folder is the source's own folder on
+    /// disk, from its library root's folder name down, so
+    /// <c>Movies/The Northman (2022)/a1b2...e5f6.8d3a...4f50.mkv</c> for a film,
+    /// <c>TV/Firefly (2002)/Season 01/...</c> for an episode, and <c>.../Featurettes/...</c> for an
+    /// extra. The folders let an admin find an item's copies: the file name alone says which version
+    /// and tier a copy is, so each version of a film has its own copies.
+    /// <para>
+    /// Built from names on disk, never from metadata or the library's name, so only a change to the
+    /// source's path moves a copy, and that already makes the source a new item. It also means a
+    /// copy's folder is always the last few folders of its source's path.
+    /// </para>
     /// </remarks>
     public static class DownloadStorage
     {
@@ -54,22 +61,80 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
+        /// Gets the folder a source's copies go in, relative to a location: the library root's folder
+        /// name, then the source's folders beneath that root.
+        /// </summary>
+        /// <param name="libraryRoots">The folders of the source's library.</param>
+        /// <param name="sourcePath">The source file's path.</param>
+        /// <returns>The mirrored folder, or <c>null</c> if the source is not under any of the roots, or
+        /// its root has no folder name, such as <c>/</c>.</returns>
+        /// <remarks>
+        /// The deepest root containing the source is used, should one library folder sit inside another.
+        /// A root at the top of a Windows drive is named after its letter, <c>E:\</c> as <c>E</c>.
+        /// </remarks>
+        public static string? GetMirroredFolder(IEnumerable<string> libraryRoots, string sourcePath)
+        {
+            ArgumentNullException.ThrowIfNull(libraryRoots);
+            ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+
+            var sourceFolder = Path.GetDirectoryName(sourcePath);
+            if (string.IsNullOrEmpty(sourceFolder))
+            {
+                return null;
+            }
+
+            string? best = null;
+            string? bestRoot = null;
+            foreach (var root in libraryRoots)
+            {
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    continue;
+                }
+
+                // Compares as the platform does, so case matters on Linux and not on Windows.
+                var relative = Path.GetRelativePath(root, sourceFolder);
+                var isUnderRoot = !Path.IsPathRooted(relative)
+                    && relative != ".."
+                    && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+                if (isUnderRoot && (bestRoot is null || root.Length > bestRoot.Length))
+                {
+                    best = relative == "." ? string.Empty : relative;
+                    bestRoot = root;
+                }
+            }
+
+            if (bestRoot is null)
+            {
+                return null;
+            }
+
+            var trimmedRoot = Path.TrimEndingDirectorySeparator(bestRoot);
+            var rootName = Path.GetFileName(trimmedRoot);
+            if (string.IsNullOrEmpty(rootName))
+            {
+                rootName = trimmedRoot.Replace(Path.VolumeSeparatorChar.ToString(), string.Empty, StringComparison.Ordinal)
+                    .Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+
+            return string.IsNullOrEmpty(rootName) ? null : Path.Combine(rootName, best!);
+        }
+
+        /// <summary>
         /// Gets a copy's path relative to a location.
         /// </summary>
-        /// <param name="libraryName">The library's name, already a valid folder name.</param>
-        /// <param name="titleFolder">The film's folder name, already a valid folder name.</param>
+        /// <param name="mirroredFolder">The source's mirrored folder, from <see cref="GetMirroredFolder"/>.</param>
         /// <param name="versionId">The id of the version the copy is made from.</param>
         /// <param name="tierId">The tier's id.</param>
         /// <returns>The relative path.</returns>
-        public static string GetRelativePath(string libraryName, string titleFolder, Guid versionId, string tierId)
+        public static string GetRelativePath(string mirroredFolder, Guid versionId, string tierId)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(libraryName);
-            ArgumentException.ThrowIfNullOrWhiteSpace(titleFolder);
+            ArgumentException.ThrowIfNullOrWhiteSpace(mirroredFolder);
             ArgumentException.ThrowIfNullOrWhiteSpace(tierId);
 
             var fileName = versionId.ToString("N", CultureInfo.InvariantCulture) + "." + tierId + Extension;
 
-            return Path.Combine(libraryName, titleFolder, fileName);
+            return Path.Combine(mirroredFolder, fileName);
         }
 
         /// <summary>
