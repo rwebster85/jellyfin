@@ -165,6 +165,21 @@ namespace Jellyfin.Api.Helpers
             => versionId.ToString("N", CultureInfo.InvariantCulture) + ".";
 
         /// <summary>
+        /// Reads the version id back out of a copy's or sidecar's file name.
+        /// </summary>
+        /// <param name="fileName">The file name, with or without a folder.</param>
+        /// <param name="versionId">The version's id, when the name starts with one.</param>
+        /// <returns><c>true</c> when the name starts with a version id and a dot.</returns>
+        public static bool TryGetVersionId(string fileName, out Guid versionId)
+        {
+            var name = Path.GetFileName(fileName);
+            var dot = name.IndexOf('.', StringComparison.Ordinal);
+
+            versionId = Guid.Empty;
+            return dot > 0 && Guid.TryParseExact(name.AsSpan(0, dot), "N", out versionId);
+        }
+
+        /// <summary>
         /// Gets a copy's path relative to a location.
         /// </summary>
         /// <param name="mirroredFolder">The source's mirrored folder, from <see cref="GetMirroredFolder"/>.</param>

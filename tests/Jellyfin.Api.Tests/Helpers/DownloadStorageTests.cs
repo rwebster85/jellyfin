@@ -73,6 +73,17 @@ namespace Jellyfin.Api.Tests.Helpers
             Assert.Contains(DownloadStorage.GetMirroredFolder([root], source), candidates);
         }
 
+        [Theory]
+        [InlineData("a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d.8d3a.mkv", true)]
+        [InlineData("a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d.8d3a.json", true)]
+        [InlineData("BBC Film Night.mkv", false)]
+        [InlineData("a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d", false)]
+        public void TryGetVersionId_ReadsTheIdBeforeTheFirstDot(string fileName, bool expected)
+        {
+            Assert.Equal(expected, DownloadStorage.TryGetVersionId(Path.Combine("x", fileName), out var id));
+            Assert.Equal(expected ? _versionId : Guid.Empty, id);
+        }
+
         [Fact]
         public void GetRelativePath_StartsWithTheVersionPrefix()
         {
