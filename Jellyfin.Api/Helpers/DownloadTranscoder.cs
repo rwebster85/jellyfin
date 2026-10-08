@@ -53,13 +53,13 @@ namespace Jellyfin.Api.Helpers
         /// The encode settings every copy is made with, for now: one hardcoded tier. Recorded in the
         /// sidecar, so changing them here makes existing copies stale.
         /// </summary>
-        private const string Settings = "mkv h264 1280x720 3000k aac 2ch 192k";
+        private const string Settings = "mkv h264 1280x720 750k aac 2ch 192k";
 
         /// <summary>
         /// The bitrate a copy is expected to average, video and audio together, for estimating its
         /// size. Matches <see cref="Settings"/>.
         /// </summary>
-        private const long ExpectedBitRate = 3_000_000 + 192_000;
+        private const long ExpectedBitRate = 750_000 + 192_000;
 
         /// <summary>
         /// How often a running copy is checked for having finished.
@@ -255,7 +255,7 @@ namespace Jellyfin.Api.Helpers
                 AudioCodec = "aac",
                 MaxWidth = 1280,
                 MaxHeight = 720,
-                VideoBitRate = 3_000_000,
+                VideoBitRate = 750_000,
                 AudioBitRate = 192_000,
                 MaxAudioChannels = 2,
                 EnableAutoStreamCopy = true,
