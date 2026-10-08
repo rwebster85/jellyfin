@@ -61,6 +61,28 @@ namespace Jellyfin.Api.Tests.Helpers
         }
 
         [Fact]
+        public void GetCandidateFolders_IncludesTheMirroredFolder_ShortestFirst()
+        {
+            var root = Path.Combine(_root, "Movies");
+            var source = Path.Combine(root, "Film (2000)", "Featurettes", "x.mkv");
+
+            var candidates = DownloadStorage.GetCandidateFolders(source);
+
+            Assert.Equal("Featurettes", candidates[0]);
+            Assert.Equal(Path.Combine("Film (2000)", "Featurettes"), candidates[1]);
+            Assert.Contains(DownloadStorage.GetMirroredFolder([root], source), candidates);
+        }
+
+        [Fact]
+        public void GetRelativePath_StartsWithTheVersionPrefix()
+        {
+            Assert.StartsWith(
+                DownloadStorage.GetVersionPrefix(_versionId),
+                Path.GetFileName(DownloadStorage.GetRelativePath("Movies", _versionId, "8d3a")),
+                StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void GetRelativePath_IsTheMirroredFolderThenVersionAndTier()
             => Assert.Equal(
                 Path.Combine("Movies", "The Northman (2022)", "a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d.8d3a.mkv"),

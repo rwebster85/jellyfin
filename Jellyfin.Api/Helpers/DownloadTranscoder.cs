@@ -159,6 +159,30 @@ namespace Jellyfin.Api.Helpers
                 && sidecar.SourceModifiedUtc == source.ModifiedUtc;
         }
 
+        /// <summary>
+        /// Stops every copy of a version still being made, whatever its tier. For a version that has
+        /// left the library, its copies would never be served.
+        /// </summary>
+        /// <param name="versionId">The version's id.</param>
+        /// <remarks>
+        /// The copy comes off the list first, which is how <see cref="FinishAsync"/> knows to delete
+        /// it. Stopping ffmpeg ends the encode cleanly, with an exit code of 0, so that code alone
+        /// would mark the cut-short copy finished.
+        /// </remarks>
+        public void Abandon(Guid versionId)
+        {
+            var prefix = DownloadStorage.GetVersionPrefix(versionId);
+            foreach (var (relativePath, job) in _running)
+            {
+                if (Path.GetFileName(relativePath).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && _running.TryRemove(new KeyValuePair<string, TranscodingJob>(relativePath, job)))
+                {
+                    logger.LogInformation("Stopping download copy {Path}: its item was removed", job.Path);
+                    job.Stop();
+                }
+            }
+        }
+
         private static (string Path, long Size, DateTime ModifiedUtc) ReadSource(BaseItem item)
         {
             var file = new FileInfo(item.Path);
@@ -298,9 +322,13 @@ namespace Jellyfin.Api.Helpers
                 // ending and the sidecar being written, and starts it again.
                 using (await transcodeManager.LockAsync(relativePath, CancellationToken.None).ConfigureAwait(false))
                 {
-                    _running.TryRemove(relativePath, out _);
-
-                    if (job.ExitCode == 0)
+                    // Already off the list means abandoned - its item was removed while it was made.
+                    if (!_running.TryRemove(new KeyValuePair<string, TranscodingJob>(relativePath, job)))
+                    {
+                        logger.LogInformation("Discarding download copy {Path}: its item was removed", outputPath);
+                        DeleteIfExists(outputPath);
+                    }
+                    else if (job.ExitCode == 0)
                     {
                         var sidecar = new Sidecar(item.Id, tierId, Settings, source.Path, source.Size, source.ModifiedUtc, DateTime.UtcNow);
                         await File.WriteAllBytesAsync(

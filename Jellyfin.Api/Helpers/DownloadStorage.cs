@@ -113,12 +113,56 @@ namespace Jellyfin.Api.Helpers
             var rootName = Path.GetFileName(trimmedRoot);
             if (string.IsNullOrEmpty(rootName))
             {
-                rootName = trimmedRoot.Replace(Path.VolumeSeparatorChar.ToString(), string.Empty, StringComparison.Ordinal)
+                rootName = trimmedRoot.Replace(
+                    Path.VolumeSeparatorChar.ToString(), string.Empty, StringComparison.Ordinal)
                     .Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             }
 
             return string.IsNullOrEmpty(rootName) ? null : Path.Combine(rootName, best!);
         }
+
+        /// <summary>
+        /// Gets every folder a source's copies could be in, relative to a location, without knowing
+        /// its library: the source's own folder, then that folder with each parent in turn in front.
+        /// </summary>
+        /// <param name="sourcePath">The source file's path.</param>
+        /// <returns>The candidates, shortest first: for <c>/media/Movies/Film/f.mkv</c>, <c>Film</c>,
+        /// <c>Movies/Film</c>, then <c>media/Movies/Film</c>.</returns>
+        /// <remarks>
+        /// For a source that has left its library, where <see cref="GetMirroredFolder"/> can no longer
+        /// be worked out: the mirrored folder is always one of these. A copy's file name starts with
+        /// its version's id, so a folder holding another source's copies is never mistaken for this one.
+        /// </remarks>
+        public static IReadOnlyList<string> GetCandidateFolders(string sourcePath)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+
+            var candidates = new List<string>();
+            var relative = string.Empty;
+            for (var folder = Path.GetDirectoryName(sourcePath);
+                !string.IsNullOrEmpty(folder);
+                folder = Path.GetDirectoryName(folder))
+            {
+                var name = Path.GetFileName(folder);
+                if (string.IsNullOrEmpty(name))
+                {
+                    break;
+                }
+
+                relative = relative.Length == 0 ? name : Path.Combine(name, relative);
+                candidates.Add(relative);
+            }
+
+            return candidates;
+        }
+
+        /// <summary>
+        /// Gets the start of the file name every copy of a version has, whatever its tier.
+        /// </summary>
+        /// <param name="versionId">The version's id.</param>
+        /// <returns>The version's id and a dot.</returns>
+        public static string GetVersionPrefix(Guid versionId)
+            => versionId.ToString("N", CultureInfo.InvariantCulture) + ".";
 
         /// <summary>
         /// Gets a copy's path relative to a location.
@@ -132,7 +176,7 @@ namespace Jellyfin.Api.Helpers
             ArgumentException.ThrowIfNullOrWhiteSpace(mirroredFolder);
             ArgumentException.ThrowIfNullOrWhiteSpace(tierId);
 
-            var fileName = versionId.ToString("N", CultureInfo.InvariantCulture) + "." + tierId + Extension;
+            var fileName = GetVersionPrefix(versionId) + tierId + Extension;
 
             return Path.Combine(mirroredFolder, fileName);
         }
@@ -142,8 +186,7 @@ namespace Jellyfin.Api.Helpers
         /// </summary>
         /// <param name="copyPath">The copy's path.</param>
         /// <returns>The sidecar's path.</returns>
-        public static string GetSidecarPath(string copyPath)
-            => Path.ChangeExtension(copyPath, SidecarExtension);
+        public static string GetSidecarPath(string copyPath) => Path.ChangeExtension(copyPath, SidecarExtension);
 
         /// <summary>
         /// Finds a finished copy in any location. A copy is finished once its sidecar exists, since
@@ -169,13 +212,13 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
-        /// Chooses where a new copy is written: the first location with room for it.
+        /// Chooses where a new copy is written: the first location with space for it.
         /// </summary>
         /// <param name="locations">The locations, in order of preference.</param>
         /// <param name="requiredBytes">The space the copy is expected to need, margin included.</param>
         /// <param name="getFreeSpace">Gets a location's free space in bytes, or a negative number if
         /// it is unknown.</param>
-        /// <returns>The chosen location, or <c>null</c> if none has room.</returns>
+        /// <returns>The chosen location, or <c>null</c> if none has space.</returns>
         /// <remarks>
         /// A location whose free space is unknown is taken: refusing it would stop every download on
         /// a filesystem that does not report its space.

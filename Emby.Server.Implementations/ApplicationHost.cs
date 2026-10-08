@@ -633,6 +633,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddScoped<DynamicHlsHelper>();
             serviceCollection.AddScoped<DownloadHelper>();
             serviceCollection.AddSingleton<DownloadTranscoder>();
+            serviceCollection.AddHostedService<DownloadCopyCleaner>();
             serviceCollection.AddScoped<IClientEventLogger, ClientEventLogger>();
             serviceCollection.AddSingleton<IDirectoryService, DirectoryService>();
 
