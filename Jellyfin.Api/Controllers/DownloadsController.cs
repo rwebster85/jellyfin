@@ -36,6 +36,7 @@ namespace Jellyfin.Api.Controllers
     /// <param name="activityManager">Instance of the <see cref="IActivityManager"/> interface.</param>
     /// <param name="localization">Instance of the <see cref="ILocalizationManager"/> interface.</param>
     /// <param name="downloadHelper">Instance of the <see cref="DownloadHelper"/>.</param>
+    /// <param name="downloadTranscoder">Instance of the <see cref="DownloadTranscoder"/>.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{DownloadsController}"/> interface.</param>
     [Route("")]
     public class DownloadsController(
@@ -44,6 +45,7 @@ namespace Jellyfin.Api.Controllers
         IActivityManager activityManager,
         ILocalizationManager localization,
         DownloadHelper downloadHelper,
+        DownloadTranscoder downloadTranscoder,
         ILogger<DownloadsController> logger) : BaseJellyfinApiController
     {
         /// <summary>
@@ -73,13 +75,11 @@ namespace Jellyfin.Api.Controllers
                 await LogDownloadAsync(item, user).ConfigureAwait(false);
             }
 
-            var downloadVersion = downloadHelper.FindForPlainDownload(item.Path, user?.Id ?? Guid.Empty);
-            if (downloadVersion is not null)
-            {
-                logger.LogInformation("Serving download version {DownloadVersion} in place of {Path}", downloadVersion, item.Path);
-            }
+            var target = downloadHelper.GetCopyTargetForPlainDownload(item, user?.Id ?? Guid.Empty);
 
-            return ServeDownload(item, downloadVersion ?? item.Path);
+            return target is null
+                ? ServeDownload(item, item.Path)
+                : await ServeCopyAsync(item, target).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -112,7 +112,9 @@ namespace Jellyfin.Api.Controllers
                 return NotFound();
             }
 
-            var downloadVersion = downloadHelper.FindForPlainDownload(item.Path, user?.Id ?? Guid.Empty);
+            // A copy not made yet cannot be described, so its source's own media info stands in.
+            var target = downloadHelper.GetCopyTargetForPlainDownload(item, user?.Id ?? Guid.Empty);
+            var downloadVersion = target is null ? null : FindCurrentCopy(item, target);
             if (downloadVersion is null)
             {
                 return NoContent();
@@ -146,8 +148,8 @@ namespace Jellyfin.Api.Controllers
             }
 
             // Never falls back to the item's own file: this route means the optimised one.
-            var downloadVersion = downloadHelper.FindForUser(item.Path, user?.Id ?? Guid.Empty);
-            if (downloadVersion is null)
+            var target = downloadHelper.GetCopyTarget(item, user?.Id ?? Guid.Empty);
+            if (target is null)
             {
                 return NotFound();
             }
@@ -157,9 +159,7 @@ namespace Jellyfin.Api.Controllers
                 await LogDownloadAsync(item, user).ConfigureAwait(false);
             }
 
-            logger.LogInformation("Serving download version {DownloadVersion} for {Path}", downloadVersion, item.Path);
-
-            return ServeDownload(item, downloadVersion);
+            return await ServeCopyAsync(item, target).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -185,7 +185,9 @@ namespace Jellyfin.Api.Controllers
                 return NotFound();
             }
 
-            var downloadVersion = downloadHelper.FindForUser(item.Path, user?.Id ?? Guid.Empty);
+            // Only a finished copy can be described: one not made yet, or still being made, is not found.
+            var target = downloadHelper.GetCopyTarget(item, user?.Id ?? Guid.Empty);
+            var downloadVersion = target is null ? null : FindCurrentCopy(item, target);
             if (downloadVersion is null)
             {
                 return NotFound();
@@ -316,10 +318,42 @@ namespace Jellyfin.Api.Controllers
             return (item, user);
         }
 
-        private PhysicalFileResult ServeDownload(BaseItem item, string filePath)
+        /// <summary>
+        /// Serves a transcoded copy: the finished file if it is current, or else the copy as it is
+        /// made, starting the encode or joining one already running.
+        /// </summary>
+        private async Task<ActionResult> ServeCopyAsync(BaseItem item, DownloadCopyTarget target)
+        {
+            // Named after the source, not the copy's own file, which is named by its ids.
+            var tierName = string.IsNullOrWhiteSpace(target.Tier.Suffix) ? target.Tier.Name : target.Tier.Suffix;
+            var downloadName = Path.GetFileNameWithoutExtension(item.Path) + " - " + tierName + DownloadStorage.Extension;
+
+            var finished = FindCurrentCopy(item, target);
+            if (finished is not null)
+            {
+                logger.LogInformation("Serving download copy {Path} for {Source}", finished, item.Path);
+
+                return ServeDownload(item, finished, downloadName);
+            }
+
+            // No length and no ranges: the copy is still growing.
+            var stream = await downloadTranscoder.OpenAsync(item, target.Tier.Id, target.Locations, target.RelativePath, HttpContext)
+                .ConfigureAwait(false);
+
+            return File(stream, MimeTypes.GetMimeType(downloadName), downloadName);
+        }
+
+        private string? FindCurrentCopy(BaseItem item, DownloadCopyTarget target)
+        {
+            var path = DownloadStorage.FindFinished(target.Locations, target.RelativePath);
+
+            return path is not null && downloadTranscoder.IsCurrent(path, item, target.Tier.Id) ? path : null;
+        }
+
+        private PhysicalFileResult ServeDownload(BaseItem item, string filePath, string? downloadName = null)
         {
             // Quotes are valid in linux. They'll possibly cause issues here.
-            var filename = Path.GetFileName(filePath)?.Replace("\"", string.Empty, StringComparison.Ordinal);
+            var filename = (downloadName ?? Path.GetFileName(filePath))?.Replace("\"", string.Empty, StringComparison.Ordinal);
 
             if (item.IsFileProtocol)
             {

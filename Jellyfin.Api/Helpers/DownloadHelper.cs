@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +14,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Jellyfin.Api.Helpers
@@ -24,12 +27,16 @@ namespace Jellyfin.Api.Helpers
     /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
+    /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
         IDisplayPreferencesManager displayPreferencesManager,
         IMediaEncoder mediaEncoder,
         IMediaSourceManager mediaSourceManager,
+        ILibraryManager libraryManager,
+        IFileSystem fileSystem,
         IMemoryCache memoryCache)
     {
         /// <summary>
@@ -39,35 +46,61 @@ namespace Jellyfin.Api.Helpers
             => serverConfigurationManager.GetConfiguration<DownloadOptions>(DownloadConfigurationStore.StoreKey);
 
         /// <summary>
-        /// Finds the download version of a file at this user's tier. Always <c>null</c> for now:
-        /// the transcoded source is not built yet, and the item's own file is served.
+        /// Finds where this user's copy of an item belongs: their tier, the locations copies are kept
+        /// in, and the copy's path within them. Whether the copy exists yet is the caller's question.
         /// </summary>
-        /// <param name="path">The path of the item being downloaded.</param>
+        /// <param name="item">The item being downloaded. Its own id keys the copy, so each version of
+        /// a film has its own.</param>
         /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
-        /// <returns>The path of the download version, or <c>null</c> if there isn't one.</returns>
-        public string? FindForUser(string? path, Guid userId)
+        /// <returns>Where the copy belongs, or <c>null</c> when the feature is off, there is no tier to
+        /// serve, or the item is not in a library.</returns>
+        public DownloadCopyTarget? GetCopyTarget(BaseItem item, Guid userId)
         {
-            return null;
+            ArgumentNullException.ThrowIfNull(item);
+
+            var tier = GetUserTier(userId) ?? GetDefaultTier();
+            var library = libraryManager.GetCollectionFolders(item).FirstOrDefault()?.Name;
+            if (tier is null || string.IsNullOrWhiteSpace(library) || string.IsNullOrWhiteSpace(item.Name))
+            {
+                return null;
+            }
+
+            // Named from the metadata, so an admin browsing the location can find a film's copies.
+            var title = item.ProductionYear is int year
+                ? string.Format(CultureInfo.InvariantCulture, "{0} ({1})", item.Name, year)
+                : item.Name;
+
+            var locations = DownloadStorage.GetLocations(Options, serverConfigurationManager.ApplicationPaths.DataPath);
+
+            var relativePath = DownloadStorage.GetRelativePath(
+                fileSystem.GetValidFilename(library),
+                fileSystem.GetValidFilename(title),
+                item.Id,
+                tier.Id);
+
+            return new DownloadCopyTarget(tier, locations, relativePath);
         }
 
         /// <summary>
-        /// Finds the download version the plain download route should serve in place of the item's
-        /// own file: only under <see cref="DownloadBehaviour.Substitute"/>, and not for a user who
+        /// Finds where the copy the plain download route serves in place of the item's own file
+        /// belongs: only under <see cref="DownloadBehaviour.Substitute"/>, and not for a user who
         /// chose the original.
         /// </summary>
-        /// <param name="path">The path of the item being downloaded.</param>
+        /// <param name="item">The item being downloaded.</param>
         /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
-        /// <returns>The path of the download version, or <c>null</c> if it should not substitute.</returns>
+        /// <returns>Where the copy belongs, or <c>null</c> if the item's own file should be served.</returns>
         /// <remarks>
-        /// The optimised routes use <see cref="FindForUser"/> instead: they mean the optimised file
+        /// The optimised routes use <see cref="GetCopyTarget"/> instead: they mean the optimised copy
         /// whatever the behaviour or the user's choice.
         /// </remarks>
-        public string? FindForPlainDownload(string? path, Guid userId)
+        public DownloadCopyTarget? GetCopyTargetForPlainDownload(BaseItem item, Guid userId)
         {
             var options = Options;
+            var isSubstitute = options.Behaviour == DownloadBehaviour.Substitute;
+            var userChoseOriginal = ChoseOriginal(options, userId);
 
-            return options.Behaviour == DownloadBehaviour.Substitute && !ChoseOriginal(options, userId)
-                ? FindForUser(path, userId)
+            return isSubstitute && !userChoseOriginal
+                ? GetCopyTarget(item, userId)
                 : null;
         }
 
