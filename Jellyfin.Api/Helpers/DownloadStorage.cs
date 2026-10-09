@@ -11,17 +11,13 @@ namespace Jellyfin.Api.Helpers
     /// Where transcoded download copies are kept: the folders, and a copy's path inside them.
     /// </summary>
     /// <remarks>
-    /// A copy lives at <c>&lt;location&gt;/&lt;mirrored folder&gt;/&lt;versionId&gt;.&lt;tierId&gt;.mkv</c>,
-    /// with its sidecar beside it as <c>.json</c>. The mirrored folder is the source's own folder on
-    /// disk, from its library root's folder name down, so
-    /// <c>Movies/The Northman (2022)/a1b2...e5f6.8d3a...4f50.mkv</c> for a film,
-    /// <c>TV/Firefly (2002)/Season 01/...</c> for an episode, and <c>.../Featurettes/...</c> for an
-    /// extra. The folders let an admin find an item's copies: the file name alone says which version
-    /// and tier a copy is, so each version of a film has its own copies.
+    /// A copy lives at <c>&lt;location&gt;/&lt;id[..2]&gt;/&lt;versionId&gt;/&lt;tierId&gt;.mkv</c>,
+    /// with its sidecar beside it as <c>.json</c>: trickplay's layout, keyed by the id of the version
+    /// copied, so each version of a film has its own copies.
     /// <para>
-    /// Built from names on disk, never from metadata or the library's name, so only a change to the
-    /// source's path moves a copy, and that already makes the source a new item. It also means a
-    /// copy's folder is always the last few folders of its source's path.
+    /// Built from ids alone, never from the source's names, so a path is always valid on the
+    /// location's filesystem and always the same length. Only a change to the source's path moves a
+    /// copy, and that already makes the source a new item.
     /// </para>
     /// </remarks>
     public static class DownloadStorage
@@ -61,125 +57,6 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
-        /// Gets the folder a source's copies go in, relative to a location: the library root's folder
-        /// name, then the source's folders beneath that root.
-        /// </summary>
-        /// <param name="libraryRoots">The folders of the source's library.</param>
-        /// <param name="sourcePath">The source file's path.</param>
-        /// <returns>The mirrored folder, or <c>null</c> if the source is not under any of the roots, or
-        /// its root has no folder name, such as <c>/</c>.</returns>
-        /// <remarks>
-        /// The deepest root containing the source is used, should one library folder sit inside another.
-        /// A root at the top of a Windows drive is named after its letter, <c>E:\</c> as <c>E</c>.
-        /// </remarks>
-        public static string? GetMirroredFolder(IEnumerable<string> libraryRoots, string sourcePath)
-        {
-            ArgumentNullException.ThrowIfNull(libraryRoots);
-            ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
-
-            var sourceFolder = Path.GetDirectoryName(sourcePath);
-            if (string.IsNullOrEmpty(sourceFolder))
-            {
-                return null;
-            }
-
-            string? best = null;
-            string? bestRoot = null;
-            foreach (var root in libraryRoots)
-            {
-                if (string.IsNullOrWhiteSpace(root))
-                {
-                    continue;
-                }
-
-                // Compares as the platform does, so case matters on Linux and not on Windows.
-                var relative = Path.GetRelativePath(root, sourceFolder);
-                var isUnderRoot = !Path.IsPathRooted(relative)
-                    && relative != ".."
-                    && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal);
-                if (isUnderRoot && (bestRoot is null || root.Length > bestRoot.Length))
-                {
-                    best = relative == "." ? string.Empty : relative;
-                    bestRoot = root;
-                }
-            }
-
-            if (bestRoot is null)
-            {
-                return null;
-            }
-
-            var trimmedRoot = Path.TrimEndingDirectorySeparator(bestRoot);
-            var rootName = Path.GetFileName(trimmedRoot);
-            if (string.IsNullOrEmpty(rootName))
-            {
-                rootName = trimmedRoot.Replace(
-                    Path.VolumeSeparatorChar.ToString(), string.Empty, StringComparison.Ordinal)
-                    .Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            }
-
-            return string.IsNullOrEmpty(rootName) ? null : Path.Combine(rootName, best!);
-        }
-
-        /// <summary>
-        /// Gets every folder a source's copies could be in, relative to a location, without knowing
-        /// its library: the source's own folder, then that folder with each parent in turn in front.
-        /// </summary>
-        /// <param name="sourcePath">The source file's path.</param>
-        /// <returns>The candidates, shortest first: for <c>/media/Movies/Film/f.mkv</c>, <c>Film</c>,
-        /// <c>Movies/Film</c>, then <c>media/Movies/Film</c>.</returns>
-        /// <remarks>
-        /// For a source that has left its library, where <see cref="GetMirroredFolder"/> can no longer
-        /// be worked out: the mirrored folder is always one of these. A copy's file name starts with
-        /// its version's id, so a folder holding another source's copies is never mistaken for this one.
-        /// </remarks>
-        public static IReadOnlyList<string> GetCandidateFolders(string sourcePath)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
-
-            var candidates = new List<string>();
-            var relative = string.Empty;
-            for (var folder = Path.GetDirectoryName(sourcePath);
-                !string.IsNullOrEmpty(folder);
-                folder = Path.GetDirectoryName(folder))
-            {
-                var name = Path.GetFileName(folder);
-                if (string.IsNullOrEmpty(name))
-                {
-                    break;
-                }
-
-                relative = relative.Length == 0 ? name : Path.Combine(name, relative);
-                candidates.Add(relative);
-            }
-
-            return candidates;
-        }
-
-        /// <summary>
-        /// Gets the start of the file name every copy of a version has, whatever its tier.
-        /// </summary>
-        /// <param name="versionId">The version's id.</param>
-        /// <returns>The version's id and a dot.</returns>
-        public static string GetVersionPrefix(Guid versionId)
-            => versionId.ToString("N", CultureInfo.InvariantCulture) + ".";
-
-        /// <summary>
-        /// Reads the version id back out of a copy's or sidecar's file name.
-        /// </summary>
-        /// <param name="fileName">The file name, with or without a folder.</param>
-        /// <param name="versionId">The version's id, when the name starts with one.</param>
-        /// <returns><c>true</c> when the name starts with a version id and a dot.</returns>
-        public static bool TryGetVersionId(string fileName, out Guid versionId)
-        {
-            var name = Path.GetFileName(fileName);
-            var dot = name.IndexOf('.', StringComparison.Ordinal);
-
-            versionId = Guid.Empty;
-            return dot > 0 && Guid.TryParseExact(name.AsSpan(0, dot), "N", out versionId);
-        }
-
-        /// <summary>
         /// Gets the folder a version's copies go in, relative to a location: trickplay's layout, the
         /// first two characters of the version's id, then the id.
         /// </summary>
@@ -208,23 +85,6 @@ namespace Jellyfin.Api.Helpers
             ArgumentException.ThrowIfNullOrWhiteSpace(tierId);
 
             return Path.Join(GetVersionFolder(versionId), tierId + Extension);
-        }
-
-        /// <summary>
-        /// Gets a copy's path relative to a location.
-        /// </summary>
-        /// <param name="mirroredFolder">The source's mirrored folder, from <see cref="GetMirroredFolder"/>.</param>
-        /// <param name="versionId">The id of the version the copy is made from.</param>
-        /// <param name="tierId">The tier's id.</param>
-        /// <returns>The relative path.</returns>
-        public static string GetRelativePath(string mirroredFolder, Guid versionId, string tierId)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(mirroredFolder);
-            ArgumentException.ThrowIfNullOrWhiteSpace(tierId);
-
-            var fileName = GetVersionPrefix(versionId) + tierId + Extension;
-
-            return Path.Combine(mirroredFolder, fileName);
         }
 
         /// <summary>
