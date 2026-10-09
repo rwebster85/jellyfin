@@ -100,6 +100,18 @@ namespace Jellyfin.Api.Tests.Helpers
                 DownloadStorage.GetRelativePath(Path.Combine("Movies", "The Northman (2022)"), _versionId, "8d3a"));
 
         [Fact]
+        public void GetVersionFolder_IsTrickplaysLayout()
+            => Assert.Equal(
+                Path.Combine("a1", "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"),
+                DownloadStorage.GetVersionFolder(_versionId));
+
+        [Fact]
+        public void GetRelativePath_IsTheVersionFolderThenTheTier()
+            => Assert.Equal(
+                Path.Combine("a1", "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", "8d3a6f1e7c4b4a2d9e5f1b0c2d3e4f50.mkv"),
+                DownloadStorage.GetRelativePath(_versionId, "8d3a6f1e7c4b4a2d9e5f1b0c2d3e4f50"));
+
+        [Fact]
         public void GetSidecarPath_ReplacesOnlyTheContainerExtension()
             => Assert.Equal(
                 Path.Combine("x", "a1b2.8d3a.json"),

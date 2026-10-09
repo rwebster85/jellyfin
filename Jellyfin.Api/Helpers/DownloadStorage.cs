@@ -180,6 +180,37 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
+        /// Gets the folder a version's copies go in, relative to a location: trickplay's layout, the
+        /// first two characters of the version's id, then the id.
+        /// </summary>
+        /// <param name="versionId">The version's id.</param>
+        /// <returns>The folder, such as <c>a1/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d</c>.</returns>
+        public static string GetVersionFolder(Guid versionId)
+        {
+            var id = versionId.ToString("D", CultureInfo.InvariantCulture);
+
+            return Path.Join(id[..2], id);
+        }
+
+        /// <summary>
+        /// Gets a copy's path relative to a location: the version's folder, then the tier's id as the
+        /// file name.
+        /// </summary>
+        /// <param name="versionId">The id of the version the copy is made from.</param>
+        /// <param name="tierId">The tier's id.</param>
+        /// <returns>The relative path.</returns>
+        /// <remarks>
+        /// Built from ids alone, so it is always valid on the location's filesystem and always the same
+        /// length, whatever the source is called.
+        /// </remarks>
+        public static string GetRelativePath(Guid versionId, string tierId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(tierId);
+
+            return Path.Join(GetVersionFolder(versionId), tierId + Extension);
+        }
+
+        /// <summary>
         /// Gets a copy's path relative to a location.
         /// </summary>
         /// <param name="mirroredFolder">The source's mirrored folder, from <see cref="GetMirroredFolder"/>.</param>
