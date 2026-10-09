@@ -89,7 +89,6 @@ namespace Jellyfin.Api.Tests.Helpers
                 preferences.Object,
                 Mock.Of<IMediaEncoder>(),
                 Mock.Of<IMediaSourceManager>(),
-                Mock.Of<ILibraryManager>(),
                 _cache);
         }
     }

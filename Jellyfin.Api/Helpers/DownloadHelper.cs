@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,14 +24,12 @@ namespace Jellyfin.Api.Helpers
     /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
-    /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
         IDisplayPreferencesManager displayPreferencesManager,
         IMediaEncoder mediaEncoder,
         IMediaSourceManager mediaSourceManager,
-        ILibraryManager libraryManager,
         IMemoryCache memoryCache)
     {
         /// <summary>
@@ -49,7 +46,7 @@ namespace Jellyfin.Api.Helpers
         /// a film has its own.</param>
         /// <param name="userId">The requesting user's id, or <see cref="Guid.Empty"/> for an API key.</param>
         /// <returns>Where the copy belongs, or <c>null</c> when the feature is off, there is no tier to
-        /// serve, or the item is not in a library.</returns>
+        /// serve, or the item has no file.</returns>
         public DownloadCopyTarget? GetCopyTarget(BaseItem item, Guid userId)
         {
             ArgumentNullException.ThrowIfNull(item);
@@ -60,16 +57,8 @@ namespace Jellyfin.Api.Helpers
                 return null;
             }
 
-            // An extra's library is found through its owner.
-            var libraryRoots = libraryManager.GetCollectionFolders(item).SelectMany(folder => folder.PhysicalLocations);
-            var mirroredFolder = DownloadStorage.GetMirroredFolder(libraryRoots, item.Path);
-            if (mirroredFolder is null)
-            {
-                return null;
-            }
-
             var locations = DownloadStorage.GetLocations(Options, serverConfigurationManager.ApplicationPaths.DataPath);
-            var relativePath = DownloadStorage.GetRelativePath(mirroredFolder, item.Id, tier.Id);
+            var relativePath = DownloadStorage.GetRelativePath(item.Id, tier.Id);
 
             return new DownloadCopyTarget(tier, locations, relativePath);
         }

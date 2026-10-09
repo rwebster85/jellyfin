@@ -171,10 +171,10 @@ namespace Jellyfin.Api.Helpers
         /// </remarks>
         public void Abandon(Guid versionId)
         {
-            var prefix = DownloadStorage.GetVersionPrefix(versionId);
+            var versionFolder = DownloadStorage.GetVersionFolder(versionId);
             foreach (var (relativePath, job) in _running)
             {
-                if (Path.GetFileName(relativePath).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                if (string.Equals(Path.GetDirectoryName(relativePath), versionFolder, StringComparison.OrdinalIgnoreCase)
                     && _running.TryRemove(new KeyValuePair<string, TranscodingJob>(relativePath, job)))
                 {
                     logger.LogInformation("Stopping download copy {Path}: its item was removed", job.Path);
