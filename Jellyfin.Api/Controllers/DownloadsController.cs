@@ -112,9 +112,9 @@ namespace Jellyfin.Api.Controllers
 
             // A copy not made yet cannot be described, so its source's own media info stands in.
             var target = downloadHelper.GetCopyTargetForPlainDownload(item, user?.Id ?? Guid.Empty);
-            var mediaSource = target is null
-                ? null
-                : await downloadHelper.DescribeCopyAsync(item, user, target, cancellationToken).ConfigureAwait(false);
+            var mediaSource = target is not null
+                ? await downloadHelper.DescribeCopyAsync(item, user, target, cancellationToken).ConfigureAwait(false)
+                : null;
 
             return mediaSource is null ? NoContent() : mediaSource;
         }
@@ -180,9 +180,9 @@ namespace Jellyfin.Api.Controllers
 
             // Only a finished copy can be described: one not made yet, or still being made, is not found.
             var target = downloadHelper.GetCopyTarget(item, user?.Id ?? Guid.Empty);
-            var mediaSource = target is null
-                ? null
-                : await downloadHelper.DescribeCopyAsync(item, user, target, cancellationToken).ConfigureAwait(false);
+            var mediaSource = target is not null
+                ? await downloadHelper.DescribeCopyAsync(item, user, target, cancellationToken).ConfigureAwait(false)
+                : null;
 
             return mediaSource is null ? NotFound() : mediaSource;
         }
