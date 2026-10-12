@@ -76,7 +76,7 @@ namespace Jellyfin.Api.Controllers
             var target = downloadHelper.GetCopyTargetForPlainDownload(item, user?.Id ?? Guid.Empty);
 
             return target is null
-                ? ServeDownload(item, item.Path)
+                ? ServeDownload(item, item.Path) // Serves the original file - feature off, no tier, original chosen, SeparateAction set.
                 : await ServeCopyAsync(item, target).ConfigureAwait(false);
         }
 
