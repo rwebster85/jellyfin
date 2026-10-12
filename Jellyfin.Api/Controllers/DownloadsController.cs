@@ -36,7 +36,6 @@ namespace Jellyfin.Api.Controllers
     /// <param name="activityManager">Instance of the <see cref="IActivityManager"/> interface.</param>
     /// <param name="localization">Instance of the <see cref="ILocalizationManager"/> interface.</param>
     /// <param name="downloadHelper">Instance of the <see cref="DownloadHelper"/>.</param>
-    /// <param name="downloadTranscoder">Instance of the <see cref="DownloadTranscoder"/>.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{DownloadsController}"/> interface.</param>
     [Route("")]
     public class DownloadsController(
@@ -45,7 +44,6 @@ namespace Jellyfin.Api.Controllers
         IActivityManager activityManager,
         ILocalizationManager localization,
         DownloadHelper downloadHelper,
-        DownloadTranscoder downloadTranscoder,
         ILogger<DownloadsController> logger) : BaseJellyfinApiController
     {
         /// <summary>
@@ -114,14 +112,9 @@ namespace Jellyfin.Api.Controllers
 
             // A copy not made yet cannot be described, so its source's own media info stands in.
             var target = downloadHelper.GetCopyTargetForPlainDownload(item, user?.Id ?? Guid.Empty);
-            var downloadVersion = target is null ? null : FindCurrentCopy(item, target);
-            if (downloadVersion is null)
-            {
-                return NoContent();
-            }
-
-            var mediaSource = await downloadHelper.DescribeAsync(item, user, downloadVersion, cancellationToken)
-                .ConfigureAwait(false);
+            var mediaSource = target is null
+                ? null
+                : await downloadHelper.DescribeCopyAsync(item, user, target, cancellationToken).ConfigureAwait(false);
 
             return mediaSource is null ? NoContent() : mediaSource;
         }
@@ -187,14 +180,9 @@ namespace Jellyfin.Api.Controllers
 
             // Only a finished copy can be described: one not made yet, or still being made, is not found.
             var target = downloadHelper.GetCopyTarget(item, user?.Id ?? Guid.Empty);
-            var downloadVersion = target is null ? null : FindCurrentCopy(item, target);
-            if (downloadVersion is null)
-            {
-                return NotFound();
-            }
-
-            var mediaSource = await downloadHelper.DescribeAsync(item, user, downloadVersion, cancellationToken)
-                .ConfigureAwait(false);
+            var mediaSource = target is null
+                ? null
+                : await downloadHelper.DescribeCopyAsync(item, user, target, cancellationToken).ConfigureAwait(false);
 
             return mediaSource is null ? NotFound() : mediaSource;
         }
@@ -318,36 +306,18 @@ namespace Jellyfin.Api.Controllers
             return (item, user);
         }
 
-        /// <summary>
-        /// Serves a transcoded copy: the finished file if it is current, or else the copy as it is
-        /// made, starting the encode or joining one already running.
-        /// </summary>
         private async Task<ActionResult> ServeCopyAsync(BaseItem item, DownloadCopyTarget target)
         {
-            // Named after the source, not the copy's own file, which is named by its ids.
-            var tierName = string.IsNullOrWhiteSpace(target.Tier.Suffix) ? target.Tier.Name : target.Tier.Suffix;
-            var downloadName = Path.GetFileNameWithoutExtension(item.Path) + " - " + tierName + DownloadStorage.Extension;
-
-            var finished = FindCurrentCopy(item, target);
-            if (finished is not null)
+            var copy = await downloadHelper.OpenCopyAsync(item, target, HttpContext).ConfigureAwait(false);
+            if (copy.Stream is not null)
             {
-                logger.LogInformation("Serving download copy {Path} for {Source}", finished, item.Path);
-
-                return ServeDownload(item, finished, downloadName);
+                // No length and no ranges: the copy is still growing.
+                return File(copy.Stream, MimeTypes.GetMimeType(copy.Name), copy.Name);
             }
 
-            // No length and no ranges: the copy is still growing.
-            var stream = await downloadTranscoder.OpenAsync(item, target.Tier.Id, target.Locations, target.RelativePath, HttpContext)
-                .ConfigureAwait(false);
+            logger.LogInformation("Serving download copy {Path} for {Source}", copy.Path, item.Path);
 
-            return File(stream, MimeTypes.GetMimeType(downloadName), downloadName);
-        }
-
-        private string? FindCurrentCopy(BaseItem item, DownloadCopyTarget target)
-        {
-            var path = DownloadStorage.FindFinished(target.Locations, target.RelativePath);
-
-            return path is not null && downloadTranscoder.IsCurrent(path, item, target.Tier.Id) ? path : null;
+            return ServeDownload(item, copy.Path!, copy.Name);
         }
 
         private PhysicalFileResult ServeDownload(BaseItem item, string filePath, string? downloadName = null)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,25 +13,28 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Jellyfin.Api.Helpers
 {
     /// <summary>
-    /// Resolves which download version a user is served, describes it, and reads and writes the
-    /// tier they chose.
+    /// Resolves which download version a user is served, opens and describes it, and reads and
+    /// writes the tier they chose.
     /// </summary>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="displayPreferencesManager">Instance of the <see cref="IDisplayPreferencesManager"/> interface.</param>
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
+    /// <param name="downloadTranscoder">Instance of <see cref="DownloadTranscoder"/>.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
         IDisplayPreferencesManager displayPreferencesManager,
         IMediaEncoder mediaEncoder,
         IMediaSourceManager mediaSourceManager,
-        IMemoryCache memoryCache)
+        IMemoryCache memoryCache,
+        DownloadTranscoder downloadTranscoder)
     {
         /// <summary>
         /// Gets the download options. Read on each use, so a saved change applies without a restart.
@@ -87,35 +91,55 @@ namespace Jellyfin.Api.Helpers
         }
 
         /// <summary>
-        /// Probes a download version and describes what it actually contains.
+        /// Opens a copy to serve: the finished file if it is current, or else the copy as it is made,
+        /// starting the encode or joining one already running.
         /// </summary>
-        /// <param name="item">The item the download version belongs to.</param>
-        /// <param name="user">The requesting user, or <c>null</c> for an API key.</param>
-        /// <param name="path">The path of the download version.</param>
-        /// <param name="cancellationToken">The cancellation token.</param>
-        /// <returns>The probed <see cref="MediaSourceInfo"/>, or <c>null</c> if the file has gone.</returns>
-        /// <remarks>
-        /// Sets the user's default audio and subtitle streams as a playback request would, since a
-        /// client playing the file offline starts on them. The probe is cached across users, so this
-        /// works on a copy.
-        /// </remarks>
-        public async Task<MediaSourceInfo?> DescribeAsync(BaseItem item, User? user, string path, CancellationToken cancellationToken)
+        /// <param name="item">The item being downloaded.</param>
+        /// <param name="target">Where the copy belongs.</param>
+        /// <param name="httpContext">The request asking for the copy, needed to start an encode.</param>
+        /// <returns>The copy, finished or growing.</returns>
+        /// <exception cref="IOException">No location has room for a copy that has to be made.</exception>
+        public async Task<DownloadCopy> OpenCopyAsync(BaseItem item, DownloadCopyTarget target, HttpContext httpContext)
         {
             ArgumentNullException.ThrowIfNull(item);
+            ArgumentNullException.ThrowIfNull(target);
 
-            var probed = await DownloadProbeHelper.ProbeAsync(mediaEncoder, memoryCache, item.Id, path, cancellationToken)
-                .ConfigureAwait(false);
+            // Named after the source, not the copy's own file, which is named by its ids.
+            var tierName = string.IsNullOrWhiteSpace(target.Tier.Suffix) ? target.Tier.Name : target.Tier.Suffix;
+            var name = Path.GetFileNameWithoutExtension(item.Path) + " - " + tierName + DownloadStorage.Extension;
 
-            if (probed is null || user is null)
+            var finished = FindCurrentCopy(item, target);
+            if (finished is not null)
             {
-                return probed;
+                return new DownloadCopy(name, finished, null);
             }
 
-            // The same clone MediaInfoHelper makes before it sets anything on a shared source.
-            var source = JsonSerializer.Deserialize<MediaSourceInfo>(JsonSerializer.SerializeToUtf8Bytes(probed)) ?? probed;
-            mediaSourceManager.SetDefaultAudioAndSubtitleStreamIndices(item, source, user);
+            var stream = await downloadTranscoder.OpenAsync(item, target.Tier.Id, target.Locations, target.RelativePath, httpContext)
+                .ConfigureAwait(false);
 
-            return source;
+            return new DownloadCopy(name, null, stream);
+        }
+
+        /// <summary>
+        /// Describes what a finished copy actually contains.
+        /// </summary>
+        /// <param name="item">The item the copy belongs to.</param>
+        /// <param name="user">The requesting user, or <c>null</c> for an API key.</param>
+        /// <param name="target">Where the copy belongs.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>The probed <see cref="MediaSourceInfo"/>, or <c>null</c> if the copy is not
+        /// finished, is stale, or has gone.</returns>
+        public async Task<MediaSourceInfo?> DescribeCopyAsync(BaseItem item, User? user, DownloadCopyTarget target, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            ArgumentNullException.ThrowIfNull(target);
+
+            // A copy not made yet, or still being made, cannot be described.
+            var path = FindCurrentCopy(item, target);
+
+            return path is null
+                ? null
+                : await DescribeAsync(item, user, path, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -197,5 +221,42 @@ namespace Jellyfin.Api.Helpers
         private bool ChoseOriginal(DownloadOptions options, Guid userId)
             => OffersOriginal(options)
                 && DownloadTiers.IsOriginal(DownloadPreferences.GetTier(displayPreferencesManager, userId));
+
+        /// <summary>
+        /// Finds a finished copy made from the item as it is now, with the tier's current settings.
+        /// </summary>
+        /// <returns>The copy's path, or <c>null</c> if it has to be made.</returns>
+        private string? FindCurrentCopy(BaseItem item, DownloadCopyTarget target)
+        {
+            var path = DownloadStorage.FindFinished(target.Locations, target.RelativePath);
+
+            return path is not null && downloadTranscoder.IsCurrent(path, item, target.Tier.Id) ? path : null;
+        }
+
+        /// <summary>
+        /// Probes a copy and describes what it actually contains.
+        /// </summary>
+        /// <returns>The probed <see cref="MediaSourceInfo"/>, or <c>null</c> if the file has gone.</returns>
+        /// <remarks>
+        /// Sets the user's default audio and subtitle streams as a playback request would, since a
+        /// client playing the file offline starts on them. The probe is cached across users, so this
+        /// works on a copy.
+        /// </remarks>
+        private async Task<MediaSourceInfo?> DescribeAsync(BaseItem item, User? user, string path, CancellationToken cancellationToken)
+        {
+            var probed = await DownloadProbeHelper.ProbeAsync(mediaEncoder, memoryCache, item.Id, path, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (probed is null || user is null)
+            {
+                return probed;
+            }
+
+            // The same clone MediaInfoHelper makes before it sets anything on a shared source.
+            var source = JsonSerializer.Deserialize<MediaSourceInfo>(JsonSerializer.SerializeToUtf8Bytes(probed)) ?? probed;
+            mediaSourceManager.SetDefaultAudioAndSubtitleStreamIndices(item, source, user);
+
+            return source;
+        }
     }
 }

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using AutoFixture;
+using AutoFixture.AutoMoq;
 using Jellyfin.Api.Helpers;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
@@ -89,7 +91,8 @@ namespace Jellyfin.Api.Tests.Helpers
                 preferences.Object,
                 Mock.Of<IMediaEncoder>(),
                 Mock.Of<IMediaSourceManager>(),
-                _cache);
+                _cache,
+                new Fixture().Customize(new AutoMoqCustomization()).Create<DownloadTranscoder>());
         }
     }
 }
