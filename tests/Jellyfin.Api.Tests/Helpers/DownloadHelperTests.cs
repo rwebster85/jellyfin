@@ -92,6 +92,7 @@ namespace Jellyfin.Api.Tests.Helpers
                 Mock.Of<IMediaEncoder>(),
                 Mock.Of<IMediaSourceManager>(),
                 _cache,
+                new DownloadStorage(configuration.Object),
                 new Fixture().Customize(new AutoMoqCustomization()).Create<DownloadTranscoder>());
         }
     }

@@ -27,6 +27,7 @@ namespace Jellyfin.Api.Helpers
     /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="memoryCache">Instance of the <see cref="IMemoryCache"/> interface.</param>
+    /// <param name="downloadStorage">Instance of <see cref="DownloadStorage"/>.</param>
     /// <param name="downloadTranscoder">Instance of <see cref="DownloadTranscoder"/>.</param>
     public class DownloadHelper(
         IServerConfigurationManager serverConfigurationManager,
@@ -34,6 +35,7 @@ namespace Jellyfin.Api.Helpers
         IMediaEncoder mediaEncoder,
         IMediaSourceManager mediaSourceManager,
         IMemoryCache memoryCache,
+        DownloadStorage downloadStorage,
         DownloadTranscoder downloadTranscoder)
     {
         /// <summary>
@@ -61,7 +63,7 @@ namespace Jellyfin.Api.Helpers
                 return null;
             }
 
-            var locations = DownloadStorage.GetLocations(Options, serverConfigurationManager.ApplicationPaths.DataPath);
+            var locations = downloadStorage.GetLocations();
             var relativePath = DownloadStorage.GetRelativePath(item.Id, tier.Id);
 
             return new DownloadCopyTarget(tier, locations, relativePath);

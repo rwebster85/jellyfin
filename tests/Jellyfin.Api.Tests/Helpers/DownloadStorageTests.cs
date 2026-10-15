@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Jellyfin.Api.Helpers;
+using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Api.Tests.Helpers
@@ -26,6 +29,26 @@ namespace Jellyfin.Api.Tests.Helpers
             var options = new DownloadOptions { TranscodeLocations = ["/mnt/b", " ", "/mnt/a ", "/mnt/B"] };
 
             Assert.Equal(["/mnt/b", "/mnt/a"], DownloadStorage.GetLocations(options, "data"));
+        }
+
+        [Fact]
+        public void GetLocations_ReadsTheOptionsOnEachCall()
+        {
+            var options = new DownloadOptions { TranscodeLocations = ["/mnt/a"] };
+            var configuration = new Mock<IServerConfigurationManager>();
+            configuration
+                .Setup(manager => manager.GetConfiguration(DownloadConfigurationStore.StoreKey))
+                .Returns(() => options);
+            configuration
+                .Setup(manager => manager.ApplicationPaths.DataPath)
+                .Returns("data");
+            var storage = new DownloadStorage(configuration.Object);
+
+            Assert.Equal(["/mnt/a"], storage.GetLocations());
+
+            options = new DownloadOptions();
+
+            Assert.Equal([Path.Combine("data", "downloads")], storage.GetLocations());
         }
 
         [Fact]

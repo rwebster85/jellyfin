@@ -5,11 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Extensions;
-using MediaBrowser.Common.Configuration;
-using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -34,12 +31,12 @@ namespace Jellyfin.Api.Helpers
     /// </para>
     /// </remarks>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
-    /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
+    /// <param name="downloadStorage">Instance of <see cref="DownloadStorage"/>.</param>
     /// <param name="downloadTranscoder">Instance of <see cref="DownloadTranscoder"/>.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{DownloadCopyCleaner}"/> interface.</param>
     public sealed class DownloadCopyCleaner(
         ILibraryManager libraryManager,
-        IServerConfigurationManager serverConfigurationManager,
+        DownloadStorage downloadStorage,
         DownloadTranscoder downloadTranscoder,
         ILogger<DownloadCopyCleaner> logger) : IHostedService, IDisposable
     {
@@ -88,7 +85,7 @@ namespace Jellyfin.Api.Helpers
                 downloadTranscoder.Abandon(video.Id);
 
                 var versionFolder = DownloadStorage.GetVersionFolder(video.Id);
-                foreach (var location in GetLocations())
+                foreach (var location in downloadStorage.GetLocations())
                 {
                     DeleteVersionFolder(Path.Combine(location, versionFolder));
                 }
@@ -120,7 +117,7 @@ namespace Jellyfin.Api.Helpers
             {
                 try
                 {
-                    var folders = GetLocations().SelectMany(FindVersionFolders).ToList();
+                    var folders = downloadStorage.GetLocations().SelectMany(FindVersionFolders).ToList();
                     if (folders.Count == 0)
                     {
                         return;
@@ -140,13 +137,6 @@ namespace Jellyfin.Api.Helpers
                     logger.LogError(ex, "Error sweeping download copies");
                 }
             }
-        }
-
-        private IReadOnlyList<string> GetLocations()
-        {
-            var options = serverConfigurationManager.GetConfiguration<DownloadOptions>(DownloadConfigurationStore.StoreKey);
-
-            return DownloadStorage.GetLocations(options, serverConfigurationManager.ApplicationPaths.DataPath);
         }
 
         /// <summary>

@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 
 namespace Jellyfin.Api.Helpers
@@ -19,8 +22,13 @@ namespace Jellyfin.Api.Helpers
     /// location's filesystem and always the same length. Only a change to the source's path moves a
     /// copy, and that already makes the source a new item.
     /// </para>
+    /// <para>
+    /// Registered as a singleton, the one place that reads the locations from the download options.
+    /// The layout rules stay static, so they can be tested without a server.
+    /// </para>
     /// </remarks>
-    public static class DownloadStorage
+    /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
+    public sealed class DownloadStorage(IServerConfigurationManager serverConfigurationManager)
     {
         /// <summary>
         /// The folder under the server's data path used when no locations are set.
@@ -36,6 +44,16 @@ namespace Jellyfin.Api.Helpers
         /// The extension of the sidecar written beside a finished copy.
         /// </summary>
         public const string SidecarExtension = ".json";
+
+        /// <summary>
+        /// Gets the folders copies are kept in, from the download options as they are now, so a saved
+        /// change applies without a restart.
+        /// </summary>
+        /// <returns>The admin's locations, or the default folder when none are set.</returns>
+        public IReadOnlyList<string> GetLocations()
+            => GetLocations(
+                serverConfigurationManager.GetConfiguration<DownloadOptions>(DownloadConfigurationStore.StoreKey),
+                serverConfigurationManager.ApplicationPaths.DataPath);
 
         /// <summary>
         /// Gets the folders copies are kept in, in the admin's order of preference.

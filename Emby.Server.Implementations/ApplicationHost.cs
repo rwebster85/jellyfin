@@ -632,6 +632,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddScoped<AudioHelper>();
             serviceCollection.AddScoped<DynamicHlsHelper>();
             serviceCollection.AddScoped<DownloadHelper>();
+            serviceCollection.AddSingleton<DownloadStorage>();
             serviceCollection.AddSingleton<DownloadTranscoder>();
             serviceCollection.AddHostedService<DownloadCopyCleaner>();
             serviceCollection.AddScoped<IClientEventLogger, ClientEventLogger>();
